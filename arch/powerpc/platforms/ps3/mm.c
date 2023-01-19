@@ -212,15 +212,54 @@ void ps3_mm_vas_destroy(void)
 {
 	int result;
 
-	DBG("%s:%d: map.vas_id    = %llu\n", __func__, __LINE__, map.vas_id);
-
 	if (map.vas_id) {
 		result = lv1_select_virtual_address_space(0);
-		BUG_ON(result);
-		result = lv1_destruct_virtual_address_space(map.vas_id);
-		BUG_ON(result);
+		result += lv1_destruct_virtual_address_space(map.vas_id);
+
+		if (result) {
+			lv1_panic(0);
+		}
+
 		map.vas_id = 0;
 	}
+}
+
+static int ps3_mm_get_repository_highmem(struct mem_region *r)
+{
+	int result;
+
+	/* Assume a single highmem region. */
+
+	result = ps3_repository_read_highmem_info(0, &r->base, &r->size);
+
+	if (result)
+		goto zero_region;
+
+	if (!r->base || !r->size) {
+		result = -1;
+		goto zero_region;
+	}
+
+	r->offset = r->base - map.rm.size;
+
+	DBG("%s:%d: Found high region in repository: %llxh %llxh\n",
+	    __func__, __LINE__, r->base, r->size);
+
+	return 0;
+
+zero_region:
+	DBG("%s:%d: No high region in repository.\n", __func__, __LINE__);
+
+	r->size = r->base = r->offset = 0;
+	return result;
+}
+
+static int ps3_mm_set_repository_highmem(const struct mem_region *r)
+{
+	/* Assume a single highmem region. */
+
+	return r ? ps3_repository_write_highmem_info(0, r->base, r->size) :
+		ps3_repository_write_highmem_info(0, 0, 0);
 }
 
 /**
@@ -278,49 +317,21 @@ static void ps3_mm_region_destroy(struct mem_region *r)
 	int result;
 
 	if (!r->destroy) {
-		pr_info("%s:%d: Not destroying high region: %llxh %llxh\n",
-			__func__, __LINE__, r->base, r->size);
 		return;
 	}
 
-	DBG("%s:%d: r->base = %llxh\n", __func__, __LINE__, r->base);
-
 	if (r->base) {
 		result = lv1_release_memory(r->base);
-		BUG_ON(result);
+
+		if (result) {
+			lv1_panic(0);
+		}
+
 		r->size = r->base = r->offset = 0;
 		map.total = map.rm.size;
 	}
-}
 
-static int ps3_mm_get_repository_highmem(struct mem_region *r)
-{
-	int result;
-
-	/* Assume a single highmem region. */
-
-	result = ps3_repository_read_highmem_info(0, &r->base, &r->size);
-
-	if (result)
-		goto zero_region;
-
-	if (!r->base || !r->size) {
-		result = -1;
-		goto zero_region;
-	}
-
-	r->offset = r->base - map.rm.size;
-
-	DBG("%s:%d: Found high region in repository: %llxh %llxh\n",
-	    __func__, __LINE__, r->base, r->size);
-
-	return 0;
-
-zero_region:
-	DBG("%s:%d: No high region in repository.\n", __func__, __LINE__);
-
-	r->size = r->base = r->offset = 0;
-	return result;
+	ps3_mm_set_repository_highmem(NULL);
 }
 
 /*============================================================================*/
@@ -1210,8 +1221,12 @@ void __init ps3_mm_init(void)
 
 	/* Check if we got the highmem region from an earlier boot step */
 
-	if (ps3_mm_get_repository_highmem(&map.r1))
-		ps3_mm_region_create(&map.r1, map.total - map.rm.size);
+	if (ps3_mm_get_repository_highmem(&map.r1)) {
+		result = ps3_mm_region_create(&map.r1, map.total - map.rm.size);
+
+		if (!result)
+			ps3_mm_set_repository_highmem(&map.r1);
+	}
 
 	/* correct map.total for the real total amount of memory we use */
 	map.total = map.rm.size + map.r1.size;

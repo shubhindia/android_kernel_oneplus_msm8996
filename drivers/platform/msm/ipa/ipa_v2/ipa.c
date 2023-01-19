@@ -207,7 +207,6 @@ struct platform_device *ipa_pdev;
 static struct {
 	bool present;
 	bool arm_smmu;
-	bool disable_htw;
 	bool fast_map;
 	bool s1_bypass;
 	u32 ipa_base;
@@ -554,8 +553,8 @@ static void ipa_wan_msg_free_cb(void *buff, u32 len, u32 type)
 	kfree(buff);
 }
 
-static int ipa_send_wan_msg(unsigned long usr_param,
-			uint8_t msg_type, bool is_cache)
+static int ipa_send_wan_msg(unsigned long usr_param, uint8_t msg_type,
+	bool is_cache)
 {
 	int retval;
 	struct ipa_wan_msg *wan_msg;
@@ -690,7 +689,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_nat_dma_cmd *)param)->entries,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_nat_dma_cmd((struct ipa_ioc_nat_dma_cmd *)param)) {
@@ -737,7 +736,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_add_hdr *)param)->num_hdrs,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_add_hdr_usr((struct ipa_ioc_add_hdr *)param,
@@ -777,7 +776,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_del_hdr *)param)->num_hdls,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_del_hdr_by_user((struct ipa_ioc_del_hdr *)param,
@@ -818,7 +817,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				((struct ipa_ioc_add_rt_rule *)param)->
 				num_rules,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_add_rt_rule_usr((struct ipa_ioc_add_rt_rule *)param,
@@ -859,7 +858,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				((struct ipa_ioc_mdfy_rt_rule *)param)->
 				num_rules,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_mdfy_rt_rule((struct ipa_ioc_mdfy_rt_rule *)param)) {
@@ -898,7 +897,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_del_rt_rule *)param)->num_hdls,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_del_rt_rule((struct ipa_ioc_del_rt_rule *)param)) {
@@ -938,7 +937,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				((struct ipa_ioc_add_flt_rule *)param)->
 				num_rules,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_add_flt_rule_usr((struct ipa_ioc_add_flt_rule *)param,
@@ -979,7 +978,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				((struct ipa_ioc_del_flt_rule *)param)->
 				num_hdls,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_del_flt_rule((struct ipa_ioc_del_flt_rule *)param)) {
@@ -1019,7 +1018,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				((struct ipa_ioc_mdfy_flt_rule *)param)->
 				num_rules,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_mdfy_flt_rule((struct ipa_ioc_mdfy_flt_rule *)param)) {
@@ -1156,7 +1155,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_query_intf_tx_props *)
 				param)->num_tx_props, pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa_query_intf_tx_props(
@@ -1201,7 +1200,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_query_intf_rx_props *)
 				param)->num_rx_props, pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa_query_intf_rx_props(
@@ -1246,7 +1245,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_query_intf_ext_props *)
 				param)->num_ext_props, pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa_query_intf_ext_props(
@@ -1284,7 +1283,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_msg_meta *)param)->msg_len,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa_pull_msg((struct ipa_msg_meta *)param,
@@ -1424,7 +1423,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			IPAERR_RL("current %d pre %d\n",
 				((struct ipa_ioc_add_hdr_proc_ctx *)
 				param)->num_proc_ctxs, pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_add_hdr_proc_ctx(
@@ -1464,7 +1463,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				((struct ipa_ioc_del_hdr_proc_ctx *)param)->
 				num_hdls,
 				pre_entry);
-			retval = -EINVAL;
+			retval = -EFAULT;
 			break;
 		}
 		if (ipa2_del_hdr_proc_ctx_by_user(
@@ -1520,7 +1519,7 @@ static long ipa_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 /**
 * ipa_setup_dflt_rt_tables() - Setup default routing tables
-*
+
 * Return codes:
 * 0: success
 * -ENOMEM: failed to allocate memory
@@ -1794,6 +1793,31 @@ int ipa_q6_pipe_delay(bool zip_pipes)
 	return 0;
 }
 
+/* Remove delay only for IPA consumer pipes */
+static void ipa_pipe_delay(bool set_reset)
+{
+	u32 reg_val = 0;
+	int client_idx;
+	int ep_idx;
+
+	for (client_idx = 0; client_idx < IPA_CLIENT_MAX; client_idx++) {
+		/* Break the processing for IPA PROD pipes and avoid looping. */
+		if (IPA_CLIENT_IS_CONS(client_idx))
+			break;
+
+		ep_idx = ipa2_get_ep_mapping(client_idx);
+		if (ep_idx == -1)
+			continue;
+
+		IPA_SETFIELD_IN_REG(reg_val, set_reset,
+			IPA_ENDP_INIT_CTRL_N_ENDP_DELAY_SHFT,
+			IPA_ENDP_INIT_CTRL_N_ENDP_DELAY_BMSK);
+
+		ipa_write_reg(ipa_ctx->mmio,
+			IPA_ENDP_INIT_CTRL_N_OFST(ep_idx), reg_val);
+	}
+}
+
 int ipa_q6_monitor_holb_mitigation(bool enable)
 {
 	int ep_idx;
@@ -1870,6 +1894,51 @@ static int ipa_q6_avoid_holb(bool zip_pipes)
 	}
 
 	return 0;
+}
+
+/*
+ * Set HOLB drop on all IPA producer/client cons pipes,
+ * do not set suspend
+ */
+static void ipa_avoid_holb(void)
+{
+	u32 reg_val;
+	int ep_idx;
+	int client_idx = IPA_CLIENT_MAX - 1;
+
+	for (; client_idx >= 0; client_idx--) {
+		/* Break the processing for IPA CONS pipes and avoid looping. */
+		if (IPA_CLIENT_IS_PROD(client_idx))
+			break;
+
+		ep_idx = ipa2_get_ep_mapping(client_idx);
+		if (ep_idx == -1)
+			continue;
+
+		/*
+		 * ipa2_cfg_ep_holb is not used here because we are
+		 * also setting HOLB on Q6 pipes, and from APPS perspective
+		 * they are not valid, therefore, the above function
+		 * will fail.
+		 */
+		reg_val = 0;
+		IPA_SETFIELD_IN_REG(reg_val, 0,
+			IPA_ENDP_INIT_HOL_BLOCK_TIMER_N_TIMER_SHFT,
+			IPA_ENDP_INIT_HOL_BLOCK_TIMER_N_TIMER_BMSK);
+
+		ipa_write_reg(ipa_ctx->mmio,
+		IPA_ENDP_INIT_HOL_BLOCK_TIMER_N_OFST_v2_0(ep_idx),
+			reg_val);
+
+		reg_val = 0;
+		IPA_SETFIELD_IN_REG(reg_val, 1,
+			IPA_ENDP_INIT_HOL_BLOCK_EN_N_EN_SHFT,
+			IPA_ENDP_INIT_HOL_BLOCK_EN_N_EN_BMSK);
+
+		ipa_write_reg(ipa_ctx->mmio,
+			IPA_ENDP_INIT_HOL_BLOCK_EN_N_OFST_v2_0(ep_idx),
+			reg_val);
+	}
 }
 
 static u32 ipa_get_max_flt_rt_cmds(u32 num_pipes)
@@ -2129,6 +2198,49 @@ static int ipa_q6_set_ex_path_dis_agg(void)
 	kfree(desc);
 
 	return retval;
+}
+
+int register_ipa_platform_cb(int (*q6_cleanup_cb)(void))
+{
+	IPAERR("In register_ipa_platform_cb\n");
+	if (ipa_ctx) {
+		if (ipa_ctx->q6_cleanup_cb == NULL) {
+			IPAERR("reg q6_cleanup_cb\n");
+			ipa_ctx->q6_cleanup_cb = q6_cleanup_cb;
+		} else
+			IPAERR("Already registered\n");
+	} else {
+		IPAERR("IPA driver not initialized, retry\n");
+		return -EAGAIN;
+	}
+	return 0;
+}
+
+/**
+* ipa_apps_shutdown_cleanup() - Take care Apps ep's cleanup
+* 1) Set HOLB drop on all IPA producer pipes.
+* 2) Remove delay for all IPA consumer pipes.
+* 3) Wait for all IPA consumer pipes to go empty and
+*    reset it.
+* 4) Do aggregation force close for all pipes.
+* 5) Reset all IPA producer pipes
+
+* 0: success
+*/
+
+int ipa_apps_shutdown_cleanup(void)
+{
+	IPA_ACTIVE_CLIENTS_INC_SPECIAL("APPS_SHUTDOWN");
+
+	ipa_avoid_holb();
+
+	ipa_pipe_delay(false);
+
+	ipa2_apps_shutdown_apps_ep_reset();
+
+	IPA_ACTIVE_CLIENTS_DEC_SPECIAL("APPS_SHUTDOWN");
+
+	return 0;
 }
 
 /**
@@ -3618,32 +3730,16 @@ int ipa2_set_required_perf_profile(enum ipa_voltage_level floor_voltage,
 	ipa_ctx->curr_ipa_clk_rate = clk_rate;
 	IPADBG_LOW("setting clock rate to %u\n", ipa_ctx->curr_ipa_clk_rate);
 	if (ipa_ctx->ipa_active_clients.cnt > 0) {
-		struct ipa_active_client_logging_info log_info;
-
-		/*
-		 * clk_set_rate should be called with unlocked lock to allow
-		 * clients to get a reference to IPA clock synchronously.
-		 * Hold a reference to IPA clock here to make sure clock
-		 * state does not change during set_rate.
-		 */
-		IPA_ACTIVE_CLIENTS_PREP_SIMPLE(log_info);
-		ipa_ctx->ipa_active_clients.cnt++;
-		ipa2_active_clients_log_inc(&log_info, false);
-		ipa_active_clients_unlock();
-
 		clk_set_rate(ipa_clk, ipa_ctx->curr_ipa_clk_rate);
 		if (ipa_ctx->ipa_hw_mode != IPA_HW_MODE_VIRTUAL)
 			if (msm_bus_scale_client_update_request(
 			    ipa_ctx->ipa_bus_hdl, ipa_get_bus_vote()))
 				WARN_ON(1);
-		/* remove the vote added here */
-		IPA_ACTIVE_CLIENTS_DEC_SIMPLE();
 	} else {
 		IPADBG_LOW("clocks are gated, not setting rate\n");
-		 ipa_active_clients_unlock();
 	}
+	ipa_active_clients_unlock();
 	IPADBG_LOW("Done\n");
-
 	return 0;
 }
 
@@ -3954,6 +4050,8 @@ static int ipa_init(const struct ipa_plat_drv_res *resource_p,
 	ipa_ctx->ipa_wrapper_size = resource_p->ipa_mem_size;
 	ipa_ctx->ipa_hw_type = resource_p->ipa_hw_type;
 	ipa_ctx->ipa_hw_mode = resource_p->ipa_hw_mode;
+	ipa_ctx->ipa_uc_monitor_holb =
+		resource_p->ipa_uc_monitor_holb;
 	ipa_ctx->use_ipa_teth_bridge = resource_p->use_ipa_teth_bridge;
 	ipa_ctx->ipa_bam_remote_mode = resource_p->ipa_bam_remote_mode;
 	ipa_ctx->modem_cfg_emb_pipe_flt = resource_p->modem_cfg_emb_pipe_flt;
@@ -3963,6 +4061,8 @@ static int ipa_init(const struct ipa_plat_drv_res *resource_p,
 	ipa_ctx->skip_uc_pipe_reset = resource_p->skip_uc_pipe_reset;
 	ipa_ctx->use_dma_zone = resource_p->use_dma_zone;
 	ipa_ctx->tethered_flow_control = resource_p->tethered_flow_control;
+	ipa_ctx->is_apps_shutdown_support =
+		resource_p->is_apps_shutdown_support;
 
 	/* Setting up IPA RX Polling Timeout Seconds */
 	ipa_rx_timeout_min_max_calc(&ipa_ctx->ipa_rx_min_timeout_usec,
@@ -4501,14 +4601,13 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	ipa_drv_res->ipa_pipe_mem_size = IPA_PIPE_MEM_SIZE;
 	ipa_drv_res->ipa_hw_type = 0;
 	ipa_drv_res->ipa_hw_mode = 0;
+	ipa_drv_res->ipa_uc_monitor_holb = false;
 	ipa_drv_res->ipa_bam_remote_mode = false;
 	ipa_drv_res->modem_cfg_emb_pipe_flt = false;
 	ipa_drv_res->ipa_wdi2 = false;
 	ipa_drv_res->wan_rx_ring_size = IPA_GENERIC_RX_POOL_SZ;
 	ipa_drv_res->lan_rx_ring_size = IPA_GENERIC_RX_POOL_SZ;
-
-	smmu_info.disable_htw = of_property_read_bool(pdev->dev.of_node,
-			"qcom,smmu-disable-htw");
+	ipa_drv_res->is_apps_shutdown_support = false;
 
 	/* Get IPA HW Version */
 	result = of_property_read_u32(pdev->dev.of_node, "qcom,ipa-hw-ver",
@@ -4527,6 +4626,22 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 	else
 		IPADBG(": found ipa_drv_res->ipa_hw_mode = %d",
 				ipa_drv_res->ipa_hw_mode);
+
+	/* Check ipa_uc_monitor_holb enabled or disabled */
+	ipa_drv_res->ipa_uc_monitor_holb =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,ipa-uc-monitor-holb");
+	IPADBG(": ipa uc monitor holb = %s\n",
+		ipa_drv_res->ipa_uc_monitor_holb
+		? "Enabled" : "Disabled");
+
+	/* Check apps_shutdown_support enabled or disabled */
+	ipa_drv_res->is_apps_shutdown_support =
+		of_property_read_bool(pdev->dev.of_node,
+		"qcom,apps-shutdown-support");
+	IPAERR(": apps shutdown support = %s\n",
+		ipa_drv_res->is_apps_shutdown_support
+		? "Enabled" : "Disabled");
 
 	/* Get IPA WAN / LAN RX  pool sizes */
 	result = of_property_read_u32(pdev->dev.of_node,
@@ -4696,7 +4811,6 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 static int ipa_smmu_wlan_cb_probe(struct device *dev)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa2_get_wlan_smmu_ctx();
-	int disable_htw = 1;
 	int atomic_ctx = 1;
 	int fast = 1;
 	int bypass = 1;
@@ -4712,17 +4826,6 @@ static int ipa_smmu_wlan_cb_probe(struct device *dev)
 		return -EPROBE_DEFER;
 	}
 	cb->valid = true;
-
-	if (smmu_info.disable_htw) {
-		ret = iommu_domain_set_attr(cb->iommu,
-			DOMAIN_ATTR_COHERENT_HTW_DISABLE,
-			&disable_htw);
-		if (ret) {
-			IPAERR("couldn't disable coherent HTW\n");
-			cb->valid = false;
-			return -EIO;
-		}
-	}
 
 	if (smmu_info.s1_bypass) {
 		if (iommu_domain_set_attr(cb->iommu,
@@ -4783,7 +4886,6 @@ static int ipa_smmu_wlan_cb_probe(struct device *dev)
 static int ipa_smmu_uc_cb_probe(struct device *dev)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa2_get_uc_smmu_ctx();
-	int disable_htw = 1;
 	int atomic_ctx = 1;
 	int ret;
 	int fast = 1;
@@ -4821,18 +4923,6 @@ static int ipa_smmu_uc_cb_probe(struct device *dev)
 	}
 	IPADBG("SMMU mapping created\n");
 	cb->valid = true;
-
-	IPADBG("UC CB PROBE sub pdev=%p disable htw\n", dev);
-	if (smmu_info.disable_htw) {
-		if (iommu_domain_set_attr(cb->mapping->domain,
-				DOMAIN_ATTR_COHERENT_HTW_DISABLE,
-				 &disable_htw)) {
-			IPAERR("couldn't disable coherent HTW\n");
-			arm_iommu_release_mapping(cb->mapping);
-			cb->valid = false;
-			return -EIO;
-		}
-	}
 
 	IPADBG("UC CB PROBE sub pdev=%p set attribute\n", dev);
 	if (smmu_info.s1_bypass) {
@@ -4888,7 +4978,6 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 {
 	struct ipa_smmu_cb_ctx *cb = ipa2_get_smmu_ctx();
 	int result;
-	int disable_htw = 1;
 	int atomic_ctx = 1;
 	int fast = 1;
 	int bypass = 1;
@@ -4924,18 +5013,6 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	}
 	IPADBG("SMMU mapping created\n");
 	cb->valid = true;
-
-	if (smmu_info.disable_htw) {
-		if (iommu_domain_set_attr(cb->mapping->domain,
-				DOMAIN_ATTR_COHERENT_HTW_DISABLE,
-				 &disable_htw)) {
-			IPAERR("couldn't disable coherent HTW\n");
-			arm_iommu_release_mapping(cb->mapping);
-			cb->valid = false;
-			return -EIO;
-		}
-		IPADBG("SMMU disable HTW\n");
-	}
 
 	if (smmu_info.s1_bypass) {
 		if (iommu_domain_set_attr(cb->mapping->domain,
@@ -5008,6 +5085,37 @@ static int ipa_smmu_ap_cb_probe(struct device *dev)
 	}
 
 	return result;
+}
+
+/**
+* ipa_platform_shutdown() - Ensure Q6 ep cleanup is done and
+*                           followed by APPS ep's cleanup.
+*/
+void ipa_platform_shutdown(void)
+{
+	IPADBG("****************ipa_platform_shutdown****************\n");
+	if (ipa_ctx->q6_cleanup_cb)
+		ipa_ctx->q6_cleanup_cb();
+	else
+		IPADBG("No Q6 cleanup callback registered\n");
+	ipa_apps_shutdown_cleanup();
+}
+
+int ipa_plat_drv_shutdown(struct platform_device *pdev_p,
+	struct ipa_api_controller *api_ctrl,
+	const struct of_device_id *pdrv_match)
+{
+	if (!ipa_ctx) {
+		pr_err("IPA driver not initialized\n");
+		return -EOPNOTSUPP;
+	}
+	if (ipa_ctx->is_apps_shutdown_support)
+		ipa_platform_shutdown();
+	else {
+		pr_err("There is no apps IPA driver shutdown support\n");
+		return -EOPNOTSUPP;
+	}
+	return 0;
 }
 
 int ipa_plat_drv_probe(struct platform_device *pdev_p,
@@ -5143,24 +5251,20 @@ int ipa_iommu_map(struct iommu_domain *domain,
 	IPADBG("domain =0x%p iova 0x%lx\n", domain, iova);
 	IPADBG("paddr =0x%pa size 0x%x\n", &paddr, (u32)size);
 
-	/* make sure no overlapping */
+	/* Checking the address overlapping */
 	if (domain == ipa2_get_smmu_domain()) {
 		if (iova >= ap_cb->va_start && iova < ap_cb->va_end) {
 			IPAERR("iommu AP overlap addr 0x%lx\n", iova);
-			BUG();
-			return -EFAULT;
 		}
 	} else if (domain == ipa2_get_wlan_smmu_domain()) {
 		/* wlan is one time map */
 	} else if (domain == ipa2_get_uc_smmu_domain()) {
 		if (iova >= uc_cb->va_start && iova < uc_cb->va_end) {
 			IPAERR("iommu uC overlap addr 0x%lx\n", iova);
-			BUG();
-			return -EFAULT;
 		}
 	} else {
 		IPAERR("Unexpected domain 0x%p\n", domain);
-		BUG();
+		ipa_assert();
 		return -EFAULT;
 	}
 

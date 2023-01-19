@@ -17,6 +17,7 @@
 #include <linux/file.h>
 #include <linux/inetdevice.h>
 #include <linux/module.h>
+#include <linux/miscdevice.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter/xt_qtaguid.h>
 #include <linux/ratelimit.h>
@@ -1591,10 +1592,10 @@ static struct sock *qtaguid_find_sk(const struct sk_buff *skb,
 
 	switch (par->family) {
 	case NFPROTO_IPV6:
-		sk = xt_socket_get6_sk(skb, par);
+		sk = xt_socket_lookup_slow_v6(dev_net(skb->dev), skb, par->in);
 		break;
 	case NFPROTO_IPV4:
-		sk = xt_socket_get4_sk(skb, par);
+		sk = xt_socket_lookup_slow_v4(dev_net(skb->dev), skb, par->in);
 		break;
 	default:
 		return NULL;
@@ -1607,7 +1608,7 @@ static struct sock *qtaguid_find_sk(const struct sk_buff *skb,
 		 * When in TCP_TIME_WAIT the sk is not a "struct sock" but
 		 * "struct inet_timewait_sock" which is missing fields.
 		 */
-		if (sk->sk_state  == TCP_TIME_WAIT) {
+		if (!sk_fullsock(sk) || sk->sk_state  == TCP_TIME_WAIT) {
 			sock_gen_put(sk);
 			sk = NULL;
 		}
@@ -1677,7 +1678,7 @@ static bool qtaguid_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	/* default: Fall through and do UID releated work */
 	}
 
-	sk = skb->sk;
+	sk = skb_to_full_sk(skb);
 	/*
 	 * When in TCP_TIME_WAIT the sk is not a "struct sock" but
 	 * "struct inet_timewait_sock" which is missing fields.
@@ -1751,7 +1752,7 @@ static bool qtaguid_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		kgid_t gid_max = make_kgid(&init_user_ns, info->gid_max);
 		set_sk_callback_lock = true;
 		read_lock_bh(&sk->sk_callback_lock);
-		MT_DEBUG("qtaguid[%d]: sk=%p->sk_socket=%p->file=%p\n",
+		MT_DEBUG("qtaguid[%d]: sk=%pK->sk_socket=%pK->file=%pK\n",
 			 par->hooknum, sk, sk->sk_socket,
 			 sk->sk_socket ? sk->sk_socket->file : (void *)-1LL);
 		filp = sk->sk_socket ? sk->sk_socket->file : NULL;
@@ -2220,7 +2221,7 @@ static int ctrl_cmd_tag(const char *input)
 			from_kuid(&init_user_ns, current_fsuid()));
 		goto err;
 	}
-	CT_DEBUG("qtaguid: ctrl_tag(%s): socket->...->sk_refcnt=%d ->sk=%pk\n",
+	CT_DEBUG("qtaguid: ctrl_tag(%s): socket->...->sk_refcnt=%d ->sk=%p\n",
 		 input, atomic_read(&el_socket->sk->sk_refcnt),
 		 el_socket->sk);
 	if (argc < 3) {
@@ -2326,7 +2327,7 @@ static int ctrl_cmd_tag(const char *input)
 	spin_unlock_bh(&uid_tag_data_tree_lock);
 	spin_unlock_bh(&sock_tag_list_lock);
 	/* We keep the ref to the sk until it is untagged */
-	CT_DEBUG("qtaguid: ctrl_tag(%s): done st@%pk ...->sk_refcnt=%d\n",
+	CT_DEBUG("qtaguid: ctrl_tag(%s): done st@%p ...->sk_refcnt=%d\n",
 		 input, sock_tag_entry,
 		 atomic_read(&el_socket->sk->sk_refcnt));
 	sockfd_put(el_socket);
@@ -2431,7 +2432,7 @@ int qtaguid_untag(struct socket *el_socket, bool kernel)
 	 * Release the sock_fd that was grabbed at tag time.
 	 */
 	sock_put(sock_tag_entry->sk);
-	CT_DEBUG("qtaguid: done. st@%pk ...->sk_refcnt=%d\n",
+	CT_DEBUG("qtaguid: done. st@%p ...->sk_refcnt=%d\n",
 		 sock_tag_entry,
 		 atomic_read(&el_socket->sk->sk_refcnt));
 
@@ -2523,7 +2524,6 @@ static void pp_stats_header(struct seq_file *m)
 static int pp_stats_line(struct seq_file *m, struct tag_stat *ts_entry,
 			 int cnt_set)
 {
-	int ret;
 	struct data_counters *cnts;
 	tag_t tag = ts_entry->tn.tag;
 	uid_t stat_uid = get_uid_from_tag(tag);
@@ -2541,7 +2541,7 @@ static int pp_stats_line(struct seq_file *m, struct tag_stat *ts_entry,
 	}
 	ppi->item_index++;
 	cnts = &ts_entry->counters;
-	ret = seq_printf(m, "%d %s 0x%llx %u %u "
+	seq_printf(m, "%d %s 0x%llx %u %u "
 		"%llu %llu "
 		"%llu %llu "
 		"%llu %llu "
@@ -2571,7 +2571,7 @@ static int pp_stats_line(struct seq_file *m, struct tag_stat *ts_entry,
 		cnts->bpc[cnt_set][IFS_TX][IFS_UDP].packets,
 		cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].bytes,
 		cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].packets);
-	return ret ?: 1;
+	return seq_has_overflowed(m) ? -ENOSPC : 1;
 }
 
 static bool pp_sets(struct seq_file *m, struct tag_stat *ts_entry)

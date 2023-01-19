@@ -453,7 +453,7 @@ static int squashfs_readpages_fragment(struct page *page,
 		page = lru_to_page(readahead_pages);
 		list_del(&page->lru);
 		if (add_to_page_cache_lru(page, mapping, page->index,
-			GFP_KERNEL)) {
+			mapping_gfp_constraint(mapping, GFP_KERNEL))) {
 			put_page(page);
 			return 0;
 		}
@@ -481,7 +481,7 @@ static int squashfs_readpages_sparse(struct page *page,
 		page = lru_to_page(readahead_pages);
 		list_del(&page->lru);
 		if (add_to_page_cache_lru(page, mapping, page->index,
-			GFP_KERNEL)) {
+			mapping_gfp_constraint(mapping, GFP_KERNEL))) {
 			put_page(page);
 			return 0;
 		}

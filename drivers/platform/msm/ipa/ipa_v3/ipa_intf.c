@@ -222,7 +222,7 @@ int ipa3_query_intf(struct ipa_ioc_query_intf *lookup)
 	int result = -EINVAL;
 
 	if (lookup == NULL) {
-		IPAERR_RL("invalid param lookup=%p\n", lookup);
+		IPAERR_RL("invalid param lookup is NULL\n");
 		return result;
 	}
 
@@ -291,6 +291,7 @@ int ipa3_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx)
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
+
 	return result;
 }
 
@@ -337,6 +338,7 @@ int ipa3_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx)
 		}
 	}
 	mutex_unlock(&ipa3_ctx->lock);
+
 	return result;
 }
 
@@ -510,7 +512,7 @@ int ipa3_send_msg(struct ipa_msg_meta *meta, void *buff,
 	void *data = NULL;
 
 	if (meta == NULL || (buff == NULL && callback != NULL) ||
-	    (buff != NULL && callback == NULL)) {
+	    (buff != NULL && callback == NULL) || buff == NULL) {
 		IPAERR_RL("invalid param meta=%p buff=%p, callback=%p\n",
 		       meta, buff, callback);
 		return -EINVAL;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,17 +27,16 @@
 #include <linux/device.h>
 #include <linux/slab.h>
 #include <soc/qcom/subsystem_restart.h>
-#include <soc/qcom/subsystem_notif.h>
 #include <soc/qcom/scm.h>
 #include <sound/apr_audio-v2.h>
 #include <linux/qdsp6v2/apr.h>
 #include <linux/qdsp6v2/apr_tal.h>
 #include <linux/qdsp6v2/aprv2_vm.h>
 #include <linux/qdsp6v2/dsp_debug.h>
+#include <linux/qdsp6v2/audio_notifier.h>
 #include <linux/ipc_logging.h>
 #include <linux/habmm.h>
 
-#define SCM_Q6_NMI_CMD 0x1
 #define APR_PKT_IPC_LOG_PAGE_CNT 2
 #define APR_VM_CB_THREAD_NAME "apr_vm_cb_thread"
 #define APR_TX_BUF_SIZE 4096
@@ -45,24 +44,47 @@
 
 static struct apr_q6 q6;
 static struct apr_client client[APR_DEST_MAX][APR_CLIENT_MAX];
-#ifdef CONFIG_IPC_LOGGING
 static void *apr_pkt_ctx;
+static wait_queue_head_t dsp_wait;
+static wait_queue_head_t modem_wait;
+static bool is_modem_up;
+static bool is_initial_boot;
+/* Subsystem restart: QDSP6 data, functions */
+static struct workqueue_struct *apr_reset_workqueue;
+static void apr_reset_deregister(struct work_struct *work);
+static void dispatch_event(unsigned long code, uint16_t proc);
+struct apr_reset_work {
+	void *handle;
+	struct work_struct work;
+};
+
+static bool apr_cf_debug;
+
+#ifdef CONFIG_DEBUG_FS
+static struct dentry *debugfs_apr_debug;
+static ssize_t apr_debug_write(struct file *filp, const char __user *ubuf,
+			       size_t cnt, loff_t *ppos)
+{
+	char cmd;
+
+	if (copy_from_user(&cmd, ubuf, 1))
+		return -EFAULT;
+
+	apr_cf_debug = (cmd == '1') ? true : false;
+
+	return cnt;
+}
+
+static const struct file_operations apr_debug_ops = {
+	.write = apr_debug_write,
+};
+#endif
+
 #define APR_PKT_INFO(x...) \
 do { \
 	if (apr_pkt_ctx) \
 		ipc_log_string(apr_pkt_ctx, "<APR>: "x); \
 } while (0)
-#endif
-static wait_queue_head_t dsp_wait;
-static wait_queue_head_t modem_wait;
-static bool is_modem_up;
-/* Subsystem restart: QDSP6 data, functions */
-static struct workqueue_struct *apr_reset_workqueue;
-static void apr_reset_deregister(struct work_struct *work);
-struct apr_reset_work {
-	void *handle;
-	struct work_struct work;
-};
 
 /* hab handle */
 static uint32_t hab_handle_tx;
@@ -269,6 +291,20 @@ enum apr_subsys_state apr_cmpxchg_modem_state(enum apr_subsys_state prev,
 	return atomic_cmpxchg(&q6.modem_state, prev, new);
 }
 
+static void apr_modem_down(unsigned long opcode)
+{
+	apr_set_modem_state(APR_SUBSYS_DOWN);
+	dispatch_event(opcode, APR_DEST_MODEM);
+}
+
+static void apr_modem_up(void)
+{
+	if (apr_cmpxchg_modem_state(APR_SUBSYS_DOWN, APR_SUBSYS_UP) ==
+							APR_SUBSYS_DOWN)
+		wake_up(&modem_wait);
+	is_modem_up = 1;
+}
+
 enum apr_subsys_state apr_get_q6_state(void)
 {
 	return atomic_read(&q6.q6_state);
@@ -289,6 +325,19 @@ enum apr_subsys_state apr_cmpxchg_q6_state(enum apr_subsys_state prev,
 					   enum apr_subsys_state new)
 {
 	return atomic_cmpxchg(&q6.q6_state, prev, new);
+}
+
+static void apr_adsp_down(unsigned long opcode)
+{
+	apr_set_q6_state(APR_SUBSYS_DOWN);
+	dispatch_event(opcode, APR_DEST_QDSP6);
+}
+
+static void apr_adsp_up(void)
+{
+	if (apr_cmpxchg_q6_state(APR_SUBSYS_DOWN, APR_SUBSYS_LOADED) ==
+							APR_SUBSYS_DOWN)
+		wake_up(&dsp_wait);
 }
 
 int apr_wait_for_device_up(int dest_id)
@@ -323,7 +372,7 @@ static int apr_vm_nb_receive(int32_t handle, void *dest_buff,
 				size_bytes,
 				timeout,
 				HABMM_SOCKET_RECV_FLAGS_NON_BLOCKING);
-	} while (time_before(jiffies, delay) && (rc == HAB_AGAIN) &&
+	} while (time_before(jiffies, delay) && (rc == -EAGAIN) &&
 		(*size_bytes == 0));
 
 	return rc;
@@ -365,10 +414,7 @@ static int apr_vm_cb_process_evt(char *buf, int len)
 		return -EINVAL;
 	}
 	hdr = (struct apr_hdr *)(buf + sizeof(uint32_t));
-#ifdef CONFIG_IPC_LOGGING
-	APR_PKT_INFO("Rx: dest_svc[%d], opcode[0x%X], size[%d]",
-		     hdr->dest_svc, hdr->opcode, hdr->pkt_size);
-#endif
+
 	ver = hdr->hdr_field;
 	ver = (ver & 0x000F);
 	if (ver > APR_PKT_VER + 1) {
@@ -448,9 +494,28 @@ static int apr_vm_cb_process_evt(char *buf, int len)
 	if (data.payload_size > 0)
 		data.payload = (char *)hdr + hdr_size;
 
+	if (unlikely(apr_cf_debug)) {
+		if (hdr->opcode == APR_BASIC_RSP_RESULT && data.payload) {
+			uint32_t *ptr = data.payload;
+
+			APR_PKT_INFO(
+			"Rx: src_addr[0x%X] dest_addr[0x%X] opcode[0x%X] token[0x%X] rc[0x%X]",
+			(hdr->src_domain << 8) | hdr->src_svc,
+			(hdr->dest_domain << 8) | hdr->dest_svc,
+			hdr->opcode, hdr->token, ptr[1]);
+		} else {
+			APR_PKT_INFO(
+			"Rx: src_addr[0x%X] dest_addr[0x%X] opcode[0x%X] token[0x%X]",
+			(hdr->src_domain << 8) | hdr->src_svc,
+			(hdr->dest_domain << 8) | hdr->dest_svc, hdr->opcode,
+			hdr->token);
+		}
+	}
+
 	temp_port = ((data.dest_port >> 8) * 8) + (data.dest_port & 0xFF);
 	pr_debug("port = %d t_port = %d\n", data.src_port, temp_port);
-	if (c_svc->port_cnt && c_svc->port_fn[temp_port])
+	if (((temp_port >= 0) && (temp_port < APR_MAX_PORTS))
+		&& (c_svc->port_cnt && c_svc->port_fn[temp_port]))
 		c_svc->port_fn[temp_port](&data, c_svc->port_priv[temp_port]);
 	else if (c_svc->fn)
 		c_svc->fn(&data, c_svc->priv);
@@ -464,25 +529,23 @@ static int apr_vm_cb_thread(void *data)
 {
 	uint32_t apr_rx_buf_len;
 	struct aprv2_vm_ack_rx_pkt_available_t apr_ack;
+	unsigned long delay = jiffies + (HZ / 2);
 	int status = 0;
 	int ret = 0;
 
 	while (1) {
-		apr_rx_buf_len = sizeof(apr_rx_buf);
-		ret = habmm_socket_recv(hab_handle_rx,
-				(void *)&apr_rx_buf,
-				&apr_rx_buf_len,
-				0xFFFFFFFF,
-				0);
+		do {
+			apr_rx_buf_len = sizeof(apr_rx_buf);
+			ret = habmm_socket_recv(hab_handle_rx,
+					(void *)&apr_rx_buf,
+					&apr_rx_buf_len,
+					0xFFFFFFFF,
+					0);
+		} while (time_before(jiffies, delay) && (ret == -EINTR) &&
+			(apr_rx_buf_len == 0));
 		if (ret) {
 			pr_err("%s: habmm_socket_recv failed %d\n",
 					__func__, ret);
-			/*
-			 * TODO: depends on the HAB error code,
-			 *       may need to implement
-			 *       a retry mechanism.
-			 * break if recv failed ?
-			 */
 			break;
 		}
 
@@ -721,10 +784,15 @@ int apr_send_pkt(void *handle, uint32_t *buf)
 	hdr->src_svc = svc->id;
 	hdr->dest_domain = svc->dest_domain;
 	hdr->dest_svc = svc->vm_dest_svc;
-#ifdef CONFIG_IPC_LOGGING
-	APR_PKT_INFO("Tx: dest_svc[%d], opcode[0x%X], size[%d]",
-			hdr->dest_svc, hdr->opcode, hdr->pkt_size);
-#endif
+
+	if (unlikely(apr_cf_debug)) {
+		APR_PKT_INFO(
+		"Tx: src_addr[0x%X] dest_addr[0x%X] opcode[0x%X] token[0x%X]",
+		(hdr->src_domain << 8) | hdr->src_svc,
+		(hdr->dest_domain << 8) | hdr->dest_svc, hdr->opcode,
+		hdr->token);
+	}
+
 	memset((void *)&apr_tx_buf, 0, sizeof(apr_tx_buf));
 	/* pkt_size + cmd_id + handle */
 	apr_send_len = hdr->pkt_size + sizeof(uint32_t) * 2;
@@ -892,7 +960,7 @@ static void apr_reset_deregister(struct work_struct *work)
 			container_of(work, struct apr_reset_work, work);
 
 	handle = apr_reset->handle;
-	pr_debug("%s:handle[%p]\n", __func__, handle);
+	pr_debug("%s:handle[%pK]\n", __func__, handle);
 	apr_deregister(handle);
 	kfree(apr_reset);
 }
@@ -952,7 +1020,7 @@ void apr_reset(void *handle)
 
 	if (!handle)
 		return;
-	pr_debug("%s: handle[%p]\n", __func__, handle);
+	pr_debug("%s: handle[%pK]\n", __func__, handle);
 
 	if (apr_reset_workqueue == NULL) {
 		pr_err("%s: apr_reset_workqueue is NULL\n", __func__);
@@ -973,7 +1041,7 @@ void apr_reset(void *handle)
 }
 
 /* Dispatch the Reset events to Modem and audio clients */
-void dispatch_event(unsigned long code, uint16_t proc)
+static void dispatch_event(unsigned long code, uint16_t proc)
 {
 	struct apr_client *apr_client;
 	struct apr_client_data data;
@@ -1027,134 +1095,66 @@ void dispatch_event(unsigned long code, uint16_t proc)
 	}
 }
 
-static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
-			     void *_cmd)
+static int apr_notifier_service_cb(struct notifier_block *this,
+				   unsigned long opcode, void *data)
 {
-	static int boot_count = 2;
+	struct audio_notifier_cb_data *cb_data = data;
 
-	if (boot_count) {
-		boot_count--;
-		return NOTIFY_OK;
+	if (cb_data == NULL) {
+		pr_err("%s: Callback data is NULL!\n", __func__);
+		goto done;
 	}
 
-	switch (code) {
-	case SUBSYS_BEFORE_SHUTDOWN:
-		pr_debug("M-Notify: Shutdown started\n");
-		apr_set_modem_state(APR_SUBSYS_DOWN);
-		dispatch_event(code, APR_DEST_MODEM);
+	pr_debug("%s: Service opcode 0x%lx, domain %d\n",
+		__func__, opcode, cb_data->domain);
+
+	switch (opcode) {
+	case AUDIO_NOTIFIER_SERVICE_DOWN:
+		/*
+		 * Use flag to ignore down notifications during
+		 * initial boot. There is no benefit from error
+		 * recovery notifications during initial boot
+		 * up since everything is expected to be down.
+		 */
+		if (is_initial_boot) {
+			is_initial_boot = false;
+			break;
+		}
+		if (cb_data->domain == AUDIO_NOTIFIER_MODEM_DOMAIN)
+			apr_modem_down(opcode);
+		else
+			apr_adsp_down(opcode);
 		break;
-	case SUBSYS_AFTER_SHUTDOWN:
-		pr_debug("M-Notify: Shutdown Completed\n");
-		break;
-	case SUBSYS_BEFORE_POWERUP:
-		pr_debug("M-notify: Bootup started\n");
-		break;
-	case SUBSYS_AFTER_POWERUP:
-		if (apr_cmpxchg_modem_state(APR_SUBSYS_DOWN, APR_SUBSYS_UP) ==
-						APR_SUBSYS_DOWN)
-			wake_up(&modem_wait);
-		is_modem_up = 1;
-		pr_debug("M-Notify: Bootup Completed\n");
+	case AUDIO_NOTIFIER_SERVICE_UP:
+		is_initial_boot = false;
+		if (cb_data->domain == AUDIO_NOTIFIER_MODEM_DOMAIN)
+			apr_modem_up();
+		else
+			apr_adsp_up();
 		break;
 	default:
-		pr_err("M-Notify: General: %lu\n", code);
 		break;
 	}
-	return NOTIFY_DONE;
+done:
+	return NOTIFY_OK;
 }
 
-static struct notifier_block mnb = {
-	.notifier_call = modem_notifier_cb,
+static struct notifier_block adsp_service_nb = {
+	.notifier_call  = apr_notifier_service_cb,
+	.priority = 0,
 };
 
-static bool powered_on;
-
-static int lpass_notifier_cb(struct notifier_block *this, unsigned long code,
-			     void *_cmd)
-{
-	static int boot_count = 2;
-	struct notif_data *data = (struct notif_data *)_cmd;
-	struct scm_desc desc;
-
-	if (boot_count) {
-		boot_count--;
-		return NOTIFY_OK;
-	}
-
-	switch (code) {
-	case SUBSYS_BEFORE_SHUTDOWN:
-		pr_debug("L-Notify: Shutdown started\n");
-		apr_set_q6_state(APR_SUBSYS_DOWN);
-		dispatch_event(code, APR_DEST_QDSP6);
-		if (data && data->crashed) {
-			/* Send NMI to QDSP6 via an SCM call. */
-			if (!is_scm_armv8()) {
-				scm_call_atomic1(SCM_SVC_UTIL,
-						 SCM_Q6_NMI_CMD, 0x1);
-			} else {
-				desc.args[0] = 0x1;
-				desc.arginfo = SCM_ARGS(1);
-				scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_UTIL,
-						 SCM_Q6_NMI_CMD), &desc);
-			}
-			/* The write should go through before q6 is shutdown */
-			mb();
-			pr_debug("L-Notify: Q6 NMI was sent.\n");
-		}
-		break;
-	case SUBSYS_AFTER_SHUTDOWN:
-		powered_on = false;
-		pr_debug("L-Notify: Shutdown Completed\n");
-		break;
-	case SUBSYS_BEFORE_POWERUP:
-		pr_debug("L-notify: Bootup started\n");
-		break;
-	case SUBSYS_AFTER_POWERUP:
-		if (apr_cmpxchg_q6_state(APR_SUBSYS_DOWN,
-				APR_SUBSYS_LOADED) == APR_SUBSYS_DOWN)
-			wake_up(&dsp_wait);
-		powered_on = true;
-		pr_debug("L-Notify: Bootup Completed\n");
-		break;
-	default:
-		pr_err("L-Notify: Generel: %lu\n", code);
-		break;
-	}
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block lnb = {
-	.notifier_call = lpass_notifier_cb,
-};
-
-static int panic_handler(struct notifier_block *this,
-				unsigned long event, void *ptr)
-{
-	struct scm_desc desc;
-
-	if (powered_on) {
-		/* Send NMI to QDSP6 via an SCM call. */
-		if (!is_scm_armv8()) {
-			scm_call_atomic1(SCM_SVC_UTIL, SCM_Q6_NMI_CMD, 0x1);
-		} else {
-			desc.args[0] = 0x1;
-			desc.arginfo = SCM_ARGS(1);
-			scm_call2_atomic(SCM_SIP_FNID(SCM_SVC_UTIL,
-					 SCM_Q6_NMI_CMD), &desc);
-		}
-	}
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block panic_nb = {
-	.notifier_call  = panic_handler,
+static struct notifier_block modem_service_nb = {
+	.notifier_call  = apr_notifier_service_cb,
+	.priority = 0,
 };
 
 static void apr_vm_set_subsys_state(void)
 {
 	/* set default subsys state in vm env.
-	Both q6 and modem should be in LOADED state,
-	since vm boots up at late stage after pm. */
+	 * Both q6 and modem should be in LOADED state,
+	 * since vm boots up at late stage after pm.
+	 */
 	apr_set_q6_state(APR_SUBSYS_LOADED);
 	apr_set_modem_state(APR_SUBSYS_LOADED);
 }
@@ -1222,13 +1222,18 @@ static int __init apr_init(void)
 		kthread_stop(apr_vm_cb_thread_task);
 		return -ENOMEM;
 	}
-	atomic_notifier_chain_register(&panic_notifier_list, &panic_nb);
-#ifdef CONFIG_IPC_LOGGING
+
 	apr_pkt_ctx = ipc_log_context_create(APR_PKT_IPC_LOG_PAGE_CNT,
 						"apr", 0);
 	if (!apr_pkt_ctx)
 		pr_err("%s: Unable to create ipc log context\n", __func__);
-#endif
+
+	is_initial_boot = true;
+	subsys_notif_register("apr_adsp", AUDIO_NOTIFIER_ADSP_DOMAIN,
+			      &adsp_service_nb);
+	subsys_notif_register("apr_modem", AUDIO_NOTIFIER_MODEM_DOMAIN,
+			      &modem_service_nb);
+
 	return 0;
 }
 device_initcall(apr_init);
@@ -1239,7 +1244,7 @@ static int __init apr_late_init(void)
 
 	init_waitqueue_head(&dsp_wait);
 	init_waitqueue_head(&modem_wait);
-	subsys_notif_register(&mnb, &lnb);
+
 	return ret;
 }
 late_initcall(apr_late_init);
@@ -1251,3 +1256,14 @@ static void __exit apr_exit(void)
 	kthread_stop(apr_vm_cb_thread_task);
 }
 __exitcall(apr_exit);
+
+#ifdef CONFIG_DEBUG_FS
+static int __init apr_debug_init(void)
+{
+	debugfs_apr_debug = debugfs_create_file("msm_apr_debug",
+						 S_IFREG | S_IRUGO, NULL, NULL,
+						 &apr_debug_ops);
+	return 0;
+}
+device_initcall(apr_debug_init);
+#endif

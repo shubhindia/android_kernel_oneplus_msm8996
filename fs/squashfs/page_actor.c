@@ -20,7 +20,7 @@ struct squashfs_page_actor *squashfs_page_actor_init(struct page **page,
 	if (actor == NULL)
 		return NULL;
 
-	actor->length = length ? : pages * PAGE_SIZE;
+	actor->length = length ? : pages * PAGE_CACHE_SIZE;
 	actor->page = page;
 	actor->pages = pages;
 	actor->next_page = 0;
@@ -43,10 +43,10 @@ void squashfs_actor_to_buf(struct squashfs_page_actor *actor, void *buf,
 	int length)
 {
 	void *pageaddr;
-	int i, avail, pos = 0;
+	int pos = 0, avail, i;
 
 	for (i = 0; i < actor->pages && pos < length; ++i) {
-		avail = min_t(int, length - pos, PAGE_SIZE);
+		avail = min_t(int, length - pos, PAGE_CACHE_SIZE);
 		if (actor->page[i]) {
 			pageaddr = kmap_atomic(actor->page[i]);
 			memcpy(buf + pos, pageaddr, avail);
@@ -60,10 +60,10 @@ void squashfs_buf_to_actor(void *buf, struct squashfs_page_actor *actor,
 	int length)
 {
 	void *pageaddr;
-	int i, avail, pos = 0;
+	int pos = 0, avail, i;
 
 	for (i = 0; i < actor->pages && pos < length; ++i) {
-		avail = min_t(int, length - pos, PAGE_SIZE);
+		avail = min_t(int, length - pos, PAGE_CACHE_SIZE);
 		if (actor->page[i]) {
 			pageaddr = kmap_atomic(actor->page[i]);
 			memcpy(pageaddr, buf + pos, avail);
@@ -77,14 +77,14 @@ void squashfs_bh_to_actor(struct buffer_head **bh, int nr_buffers,
 	struct squashfs_page_actor *actor, int offset, int length, int blksz)
 {
 	void *kaddr = NULL;
-	int bytes = 0, pgoff = 0, b = 0, p = 0, i, avail;
+	int bytes = 0, pgoff = 0, b = 0, p = 0, avail, i;
 
 	while (bytes < length) {
 		if (actor->page[p]) {
 			kaddr = kmap_atomic(actor->page[p]);
-			while (pgoff < PAGE_SIZE && bytes < length) {
+			while (pgoff < PAGE_CACHE_SIZE && bytes < length) {
 				avail = min_t(int, blksz - offset,
-						PAGE_SIZE - pgoff);
+						PAGE_CACHE_SIZE - pgoff);
 				memcpy(kaddr + pgoff, bh[b]->b_data + offset,
 				       avail);
 				pgoff += avail;
@@ -98,12 +98,12 @@ void squashfs_bh_to_actor(struct buffer_head **bh, int nr_buffers,
 			kunmap_atomic(kaddr);
 			pgoff = 0;
 		} else {
-			for (i = 0; i < PAGE_SIZE / blksz; ++i) {
+			for (i = 0; i < PAGE_CACHE_SIZE / blksz; ++i) {
 				if (bh[b])
 					put_bh(bh[b]);
 				++b;
 			}
-			bytes += PAGE_SIZE;
+			bytes += PAGE_CACHE_SIZE;
 		}
 		++p;
 	}

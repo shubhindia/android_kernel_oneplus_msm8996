@@ -29,9 +29,9 @@
 
 /* block.c */
 extern int squashfs_init_read_wq(void);
+extern void squashfs_destroy_read_wq(void);
 extern int squashfs_read_data(struct super_block *, u64, int, u64 *,
 				struct squashfs_page_actor *);
-extern void squashfs_destroy_read_wq(void);
 extern int squashfs_read_data(struct super_block *, u64, int, u64 *,
 	struct squashfs_page_actor *);
 extern int squashfs_read_data_async(struct super_block *, u64, int, u64 *,

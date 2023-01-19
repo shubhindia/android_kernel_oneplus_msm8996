@@ -12,7 +12,6 @@
 
 #include <linux/ipa_mhi.h>
 #include <linux/ipa_uc_offload.h>
-#include <linux/ipa_wdi3.h>
 #include "ipa_common_i.h"
 
 #ifndef _IPA_API_H_
@@ -193,6 +192,9 @@ struct ipa_api_controller {
 
 	u16 (*ipa_get_smem_restr_bytes)(void);
 
+	int (*ipa_broadcast_wdi_quota_reach_ind)(uint32_t fid,
+		uint64_t num_bytes);
+
 	int (*ipa_uc_wdi_get_dbpa)(struct ipa_wdi_db_params *out);
 
 	int (*ipa_uc_reg_rdyCB)(struct ipa_wdi_uc_ready_params *param);
@@ -328,8 +330,6 @@ struct ipa_api_controller {
 
 	int (*ipa_stop_gsi_channel)(u32 clnt_hdl);
 
-	int (*ipa_start_gsi_channel)(u32 clnt_hdl);
-
 	struct iommu_domain *(*ipa_get_smmu_domain)(void);
 
 	int (*ipa_disable_apps_wan_cons_deaggr)(uint32_t agg_size,
@@ -343,8 +343,7 @@ struct ipa_api_controller {
 	int (*ipa_create_wdi_mapping)(u32 num_buffers,
 		struct ipa_wdi_buffer_info *info);
 
-	const struct ipa_gsi_ep_config *(*ipa_get_gsi_ep_info)
-		(enum ipa_client_type client);
+	struct ipa_gsi_ep_config *(*ipa_get_gsi_ep_info)(int ipa_ep_idx);
 
 	int (*ipa_register_ipa_ready_cb)(void (*ipa_ready_cb)(void *user_data),
 		void *user_data);
@@ -372,6 +371,10 @@ struct ipa_api_controller {
 
 	void *(*ipa_get_ipc_logbuf_low)(void);
 
+	int (*ipa_rx_poll)(u32 clnt_hdl, int budget);
+
+	void (*ipa_recycle_wan_skb)(struct sk_buff *skb);
+
 	int (*ipa_setup_uc_ntn_pipes)(struct ipa_ntn_conn_in_params *in,
 		ipa_notify_cb notify, void *priv, u8 hdr_len,
 		struct ipa_ntn_conn_out_params *);
@@ -379,38 +382,38 @@ struct ipa_api_controller {
 	int (*ipa_tear_down_uc_offload_pipes)(int ipa_ep_idx_ul,
 		int ipa_ep_idx_dl);
 
-	int (*ipa_tz_unlock_reg)(struct ipa_tz_unlock_reg_info *reg_info,
-		u16 num_regs);
-
 	struct device *(*ipa_get_pdev)(void);
 
 	int (*ipa_ntn_uc_reg_rdyCB)(void (*ipauc_ready_cb)(void *user_data),
 		void *user_data);
 
 	void (*ipa_ntn_uc_dereg_rdyCB)(void);
-
-	int (*ipa_conn_wdi3_pipes)(struct ipa_wdi3_conn_in_params *in,
-		struct ipa_wdi3_conn_out_params *out);
-
-	int (*ipa_disconn_wdi3_pipes)(int ipa_ep_idx_tx,
-		int ipa_ep_idx_rx);
-
-	int (*ipa_enable_wdi3_pipes)(int ipa_ep_idx_tx,
-		int ipa_ep_idx_rx);
-
-	int (*ipa_disable_wdi3_pipes)(int ipa_ep_idx_tx,
-		int ipa_ep_idx_rx);
 };
 
 #ifdef CONFIG_IPA
 int ipa_plat_drv_probe(struct platform_device *pdev_p,
 	struct ipa_api_controller *api_ctrl, struct of_device_id *pdrv_match);
+int ipa_plat_drv_shutdown(struct platform_device *pdev_p,
+	struct ipa_api_controller *api_ctrl,
+	const struct of_device_id *pdrv_match);
+void ipa_platform_shutdown(void);
 #else
 static inline int ipa_plat_drv_probe(struct platform_device *pdev_p,
 	struct ipa_api_controller *api_ctrl, struct of_device_id *pdrv_match)
 {
 	return -ENODEV;
 }
+static inline int ipa_plat_drv_shutdown(struct platform_device *pdev_p,
+	struct ipa_api_controller *api_ctrl,
+	const struct of_device_id *pdrv_match)
+{
+	return -ENODEV;
+}
+static inline int ipa_platform_shutdown(void)
+{
+	return -ENODEV;
+}
+
 #endif /* (CONFIG_IPA) */
 
 #ifdef CONFIG_IPA3

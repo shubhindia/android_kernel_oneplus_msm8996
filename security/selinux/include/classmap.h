@@ -100,7 +100,7 @@ struct security_class_mapping secclass_map[] = {
 	  { COMMON_IPC_PERMS, NULL } },
 	{ "netlink_route_socket",
 	  { COMMON_SOCK_PERMS,
-	    "nlmsg_read", "nlmsg_write", "nlmsg_readpriv", NULL } },
+	    "nlmsg_read", "nlmsg_write", NULL } },
 	{ "netlink_tcpdiag_socket",
 	  { COMMON_SOCK_PERMS,
 	    "nlmsg_read", "nlmsg_write", NULL } },
@@ -155,7 +155,8 @@ struct security_class_mapping secclass_map[] = {
 	{ "kernel_service", { "use_as_override", "create_files_as", NULL } },
 	{ "tun_socket",
 	  { COMMON_SOCK_PERMS, "attach_queue", NULL } },
-	{ "binder", { "impersonate", "call", "set_context_mgr", "transfer", NULL } },
+	{ "binder", { "impersonate", "call", "set_context_mgr", "transfer",
+		      NULL } },
 	{ "can_socket",
 	  { COMMON_SOCK_PERMS, NULL } },
 	{ NULL }

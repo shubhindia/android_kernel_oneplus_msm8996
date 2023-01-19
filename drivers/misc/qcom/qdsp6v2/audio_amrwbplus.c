@@ -106,7 +106,7 @@ static long audio_ioctl_shared(struct file *file, unsigned int cmd,
 			audio->enabled);
 		if (audio->stopped == 1)
 			audio->stopped = 0;
-		break;
+			break;
 		}
 	default:
 		pr_err("%s: Unknown ioctl cmd = %d", __func__, cmd);
@@ -312,8 +312,6 @@ static int audio_open(struct inode *inode, struct file *file)
 	audio->miscdevice = &audio_amrwbplus_misc;
 	audio->wakelock_voted = false;
 	audio->audio_ws_mgr = &audio_amrwbplus_ws_mgr;
-
-	init_waitqueue_head(&audio->event_wait);
 
 	audio->ac =
 	q6asm_audio_client_alloc((app_cb) q6_audio_cb, (void *)audio);

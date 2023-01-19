@@ -98,7 +98,8 @@ static inline int fscrypt_get_encryption_info(struct inode *inode)
 	return -EOPNOTSUPP;
 }
 
-static inline void fscrypt_put_encryption_info(struct inode *inode)
+static inline void fscrypt_put_encryption_info(struct inode *inode,
+					       struct fscrypt_info *ci)
 {
 	return;
 }
@@ -221,8 +222,7 @@ static inline int __fscrypt_encrypt_symlink(struct inode *inode,
 
 static inline void *fscrypt_get_symlink(struct inode *inode,
 					      const void *caddr,
-					      unsigned int max_size,
-					      struct nameidata *nd)
+					      unsigned int max_size)
 {
 	return ERR_PTR(-EOPNOTSUPP);
 }

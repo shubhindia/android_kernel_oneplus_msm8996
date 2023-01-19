@@ -21,8 +21,6 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
-bool is_3p8sp = false;
-
 static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl;
 static struct msm_camera_i2c_fn_t msm_sensor_secure_func_tbl;
 
@@ -90,7 +88,6 @@ int32_t msm_sensor_free_sensor_data(struct msm_sensor_ctrl_t *s_ctrl)
 	kfree(s_ctrl->sensordata->actuator_info);
 	kfree(s_ctrl->sensordata->power_info.gpio_conf->gpio_num_info);
 	kfree(s_ctrl->sensordata->power_info.gpio_conf->cam_gpio_req_tbl);
-	kfree(s_ctrl->sensordata->power_info.gpio_conf->cam_gpio_set_tbl);
 	kfree(s_ctrl->sensordata->power_info.gpio_conf);
 	kfree(s_ctrl->sensordata->power_info.cam_vreg);
 	kfree(s_ctrl->sensordata->power_info.power_setting);
@@ -273,13 +270,6 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 
 	pr_debug("%s: read id: 0x%x expected id 0x%x:\n",
 			__func__, chipid, slave_info->sensor_id);
-	if(s_ctrl->front_camera_name &&(((!strcmp(s_ctrl->front_camera_name, "IMX179")) && msm_sensor_id_by_mask(s_ctrl, chipid) == S5K3P8) ||
-		((!strcmp(s_ctrl->front_camera_name, "S5K3P8")) && msm_sensor_id_by_mask(s_ctrl, chipid) == IMX179))) {
-		pr_err("Support front camera %s, but it is %s. Don't probe.\n",s_ctrl->front_camera_name, sensor_name);
-		return -ENODEV;
-	}
-	if(chipid == 0x3108 && !is_3p8sp)
-		chipid += 1;
 	if (msm_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		pr_err("%s chip id %x does not match %x\n",
 				__func__, chipid, slave_info->sensor_id);
@@ -343,14 +333,6 @@ static long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 	if (!s_ctrl) {
 		pr_err("%s s_ctrl NULL\n", __func__);
 		return -EBADF;
-	}
-	if (cmd == 0 && arg == NULL)
-	{
-		pr_err("ftm: power down");
-		return msm_sensor_power_down(s_ctrl);
-	} else if (cmd ==1 && arg == NULL) {
-		pr_err("ftm: power up");
-		return msm_sensor_power_up(s_ctrl);
 	}
 	switch (cmd) {
 	case VIDIOC_MSM_SENSOR_CFG:
@@ -602,7 +584,12 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 			pr_err("%s:%d: i2c_read failed\n", __func__, __LINE__);
 			break;
 		}
-		read_config_ptr->data = local_data;
+		if (copy_to_user(&read_config_ptr->data,
+				&local_data, sizeof(local_data))) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
 		break;
 	}
 	case CFG_SLAVE_WRITE_I2C_ARRAY: {
@@ -1116,7 +1103,12 @@ int msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 			pr_err("%s:%d: i2c_read failed\n", __func__, __LINE__);
 			break;
 		}
-		read_config_ptr->data = local_data;
+		if (copy_to_user(&read_config_ptr->data,
+				&local_data, sizeof(local_data))) {
+			pr_err("%s:%d failed\n", __func__, __LINE__);
+			rc = -EFAULT;
+			break;
+		}
 		break;
 	}
 	case CFG_SLAVE_WRITE_I2C_ARRAY: {
@@ -1431,31 +1423,12 @@ static int msm_sensor_power(struct v4l2_subdev *sd, int on)
 	mutex_unlock(s_ctrl->msm_sensor_mutex);
 	return rc;
 }
-
-static int msm_sensor_v4l2_enum_fmt(struct v4l2_subdev *sd,
-	unsigned int index, enum v4l2_mbus_pixelcode *code)
-{
-	struct msm_sensor_ctrl_t *s_ctrl = get_sctrl(sd);
-
-	if ((unsigned int)index >= s_ctrl->sensor_v4l2_subdev_info_size)
-		return -EINVAL;
-
-	*code = s_ctrl->sensor_v4l2_subdev_info[index].code;
-	return 0;
-}
-
 static struct v4l2_subdev_core_ops msm_sensor_subdev_core_ops = {
 	.ioctl = msm_sensor_subdev_ioctl,
 	.s_power = msm_sensor_power,
 };
-
-static struct v4l2_subdev_video_ops msm_sensor_subdev_video_ops = {
-	.enum_mbus_fmt = msm_sensor_v4l2_enum_fmt,
-};
-
 static struct v4l2_subdev_ops msm_sensor_subdev_ops = {
 	.core = &msm_sensor_subdev_core_ops,
-	.video  = &msm_sensor_subdev_video_ops,
 };
 
 static struct msm_sensor_fn_t msm_sensor_func_tbl = {

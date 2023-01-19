@@ -1066,8 +1066,8 @@ bail:
 }
 
 /**
- * ipa2_del_hdr() - Remove the specified headers from SW and optionally commit them
- * to IPA HW
+ * ipa2_del_hdr() - Remove the specified headers from SW
+ * and optionally commit them to IPA HW
  * @hdls:	[inout] set of headers to delete
  *
  * Returns:	0 on success, negative on failure
@@ -1396,7 +1396,6 @@ int ipa2_reset_hdr(bool user_only)
 		ipa_ctx->hdr_proc_ctx_tbl.end = 0;
 		ipa_ctx->hdr_proc_ctx_tbl.proc_ctx_cnt = 0;
 	}
-
 
 	/* commit the change to IPA-HW */
 	if (ipa_ctx->ctrl->ipa_commit_hdr()) {

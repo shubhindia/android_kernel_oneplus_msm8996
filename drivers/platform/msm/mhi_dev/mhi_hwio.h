@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,7 @@
 #ifndef _MHI_HWIO_
 #define _MHI_HWIO_
 
-/* MHI register defintion */
+/* MHI register definition */
 #define MHI_CTRL_INT_STATUS_A7				(0x0004)
 #define MHI_CTRL_INT_STATUS_A7_STATUS_MASK		0xffffffff
 #define MHI_CTRL_INT_STATUS_A7_STATUS_SHIFT		0x0
@@ -184,14 +184,8 @@
 #define ERDB_HIGHER_n_ERDB_HIGHER_MASK			0xffffffff
 #define ERDB_HIGHER_n_ERDB_HIGHER_SHIFT			0x0
 
-#define BHI_INTVEC					(0x220)
-#define BHI_INTVEC_MASK					0xFFFFFFFF
-#define BHI_INTVEC_SHIFT				0
-
 #define BHI_EXECENV					(0x228)
 #define BHI_EXECENV_MASK				0xFFFFFFFF
 #define BHI_EXECENV_SHIFT				0
-
-#define BHI_IMGTXDB					(0x218)
 
 #endif

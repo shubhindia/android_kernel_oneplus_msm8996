@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017,2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, 2019 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -102,8 +102,7 @@ static enum msm_vidc_pixel_depth get_hal_pixel_depth(u32 hfi_bit_depth)
 static inline int validate_pkt_size(u32 rem_size, u32 msg_size)
 {
 	if (rem_size < msg_size) {
-		dprintk(VIDC_ERR, "%s: bad_pkt_size: %d\n",
-			__func__, rem_size);
+		dprintk(VIDC_ERR, "%s: bad_pkt_size: %d\n", __func__, rem_size);
 		return false;
 	}
 	return true;
@@ -124,8 +123,6 @@ static int hfi_process_sess_evt_seq_changed(u32 device_id,
 	enum msm_vidc_pixel_depth luma_bit_depth, chroma_bit_depth;
 	struct hfi_colour_space *colour_info;
 
-	 /* Initialize pic_struct to unknown as default */
-	event_notify.pic_struct = MSM_VIDC_PIC_STRUCT_UNKNOWN;
 	if (!validate_pkt_size(pkt->size,
 			       sizeof(struct hfi_msg_event_notify_packet)))
 		return -E2BIG;
@@ -847,6 +844,7 @@ static enum vidc_status hfi_parse_init_done_properties(
 {
 	enum vidc_status status = VIDC_ERR_NONE;
 	u32 prop_id, next_offset;
+
 #define VALIDATE_PROPERTY_STRUCTURE_SIZE(pkt_size, property_size) ({\
 		if (pkt_size < property_size) { \
 			status = VIDC_ERR_BAD_PARAM; \
@@ -874,6 +872,7 @@ static enum vidc_status hfi_parse_init_done_properties(
 			struct hfi_codec_mask_supported *prop =
 				(struct hfi_codec_mask_supported *)
 				(data_ptr + next_offset);
+
 			VALIDATE_PROPERTY_STRUCTURE_SIZE(rem_bytes -
 					next_offset,
 					sizeof(*prop));
@@ -941,6 +940,7 @@ static enum vidc_status hfi_parse_init_done_properties(
 					plane_info->num_planes *
 					sizeof(struct
 					hfi_uncompressed_plane_constraints);
+
 				VALIDATE_PROPERTY_STRUCTURE_SIZE(rem_bytes -
 						next_offset,
 						bytes_to_skip);
@@ -957,6 +957,7 @@ static enum vidc_status hfi_parse_init_done_properties(
 			struct hfi_properties_supported *prop =
 				(struct hfi_properties_supported *)
 				(data_ptr + next_offset);
+
 			VALIDATE_PROPERTY_STRUCTURE_SIZE(rem_bytes -
 					next_offset,
 					sizeof(*prop));
@@ -964,6 +965,7 @@ static enum vidc_status hfi_parse_init_done_properties(
 					next_offset - sizeof(*prop) +
 					sizeof(u32), sizeof(u32),
 					prop->num_properties);
+
 			next_offset += sizeof(*prop) - sizeof(u32)
 				+ prop->num_properties * sizeof(u32);
 			num_properties--;
@@ -983,8 +985,16 @@ static enum vidc_status hfi_parse_init_done_properties(
 			VALIDATE_PROPERTY_STRUCTURE_SIZE(rem_bytes -
 					next_offset,
 					sizeof(*prop));
+
 			ptr = (char *) &prop->rg_profile_level[0];
 			prof_count = prop->profile_count;
+
+			VALIDATE_PROPERTY_PAYLOAD_SIZE(rem_bytes -
+					next_offset -
+					sizeof(u32),
+					sizeof(struct hfi_profile_level),
+					prop->profile_count);
+
 			next_offset += sizeof(u32);
 
 			if (prof_count > MAX_PROFILE_COUNT) {
@@ -1065,24 +1075,26 @@ static enum vidc_status hfi_parse_init_done_properties(
 			struct hfi_buffer_alloc_mode_supported *prop =
 				(struct hfi_buffer_alloc_mode_supported *)
 				(data_ptr + next_offset);
+
 			VALIDATE_PROPERTY_STRUCTURE_SIZE(rem_bytes -
 					next_offset,
 					sizeof(*prop));
+			next_offset +=
+				sizeof(struct hfi_buffer_alloc_mode_supported);
 			if (prop->num_entries >= 32) {
 				dprintk(VIDC_ERR,
 					"%s - num_entries: %d from f/w seems suspect\n",
 					__func__, prop->num_entries);
 				break;
 			}
+
 			VALIDATE_PROPERTY_PAYLOAD_SIZE(rem_bytes -
-				next_offset -
-				sizeof(struct hfi_buffer_alloc_mode_supported) +
-				sizeof(u32),
-				sizeof(u32),
-				prop->num_entries);
+					next_offset +
+					sizeof(u32),
+					sizeof(u32),
+					prop->num_entries);
 			next_offset +=
-				sizeof(struct hfi_buffer_alloc_mode_supported) -
-				sizeof(u32) + prop->num_entries * sizeof(u32);
+				 prop->num_entries * sizeof(u32) - sizeof(u32);
 
 			copy_alloc_mode_to_sessions(prop,
 					capabilities, num_sessions,
@@ -1097,6 +1109,7 @@ static enum vidc_status hfi_parse_init_done_properties(
 				__func__, data_ptr, prop_id);
 			break;
 		}
+
 		if (rem_bytes > next_offset) {
 			rem_bytes -= next_offset;
 			data_ptr += next_offset;
@@ -1124,7 +1137,7 @@ enum vidc_status hfi_process_sys_init_done_prop_read(
 		return VIDC_ERR_FAIL;
 	}
 	if (pkt->size < sizeof(struct hfi_msg_sys_init_done_packet)) {
-		dprintk(VIDC_ERR, "%s: bad packet size: %d\n",
+		dprintk(VIDC_ERR, "%s: bad_packet_size: %d\n",
 			__func__, pkt->size);
 		return VIDC_ERR_FAIL;
 	}
@@ -1354,7 +1367,7 @@ static int hfi_process_session_prop_info(u32 device_id,
 	struct hfi_msg_session_property_info_packet *pkt = _pkt;
 	struct msm_vidc_cb_cmd_done cmd_done = {0};
 	struct hfi_profile_level profile_level = {0};
-	enum hal_h264_entropy entropy = 0;
+	enum hal_h264_entropy entropy = {0};
 	struct buffer_requirements buff_req = { { {0} } };
 
 	dprintk(VIDC_DBG, "Received SESSION_PROPERTY_INFO[%#x]\n",
@@ -1830,8 +1843,12 @@ static int hfi_process_session_rel_buf_done(u32 device_id,
 	cmd_done.size = sizeof(struct msm_vidc_cb_cmd_done);
 	cmd_done.session_id = (void *)(uintptr_t)pkt->session_id;
 	cmd_done.status = hfi_map_err_status(pkt->error_type);
-	cmd_done.data.buffer_info.buffer_addr = *pkt->rg_buffer_info;
-	cmd_done.size = sizeof(struct hal_buffer_info);
+	if (pkt->rg_buffer_info) {
+		cmd_done.data.buffer_info.buffer_addr = *pkt->rg_buffer_info;
+		cmd_done.size = sizeof(struct hal_buffer_info);
+	} else {
+		dprintk(VIDC_ERR, "invalid payload in rel_buff_done\n");
+	}
 
 	*info = (struct msm_vidc_cb_info) {
 		.response_type =  HAL_SESSION_RELEASE_BUFFER_DONE,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, 2019 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, 2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -97,12 +97,12 @@ static int msm_dtmf_rx_generate_put(struct snd_kcontrol *kcontrol,
 {
 	uint16_t low_freq = ucontrol->value.integer.value[0];
 	uint16_t high_freq = ucontrol->value.integer.value[1];
-	int64_t duration = ucontrol->value.integer.value[2];
+	int16_t duration = ucontrol->value.integer.value[2];
 	uint16_t gain = ucontrol->value.integer.value[3];
 
 	pr_debug("%s: low_freq=%d high_freq=%d duration=%d gain=%d\n",
 		 __func__, low_freq, high_freq, (int)duration, gain);
-	afe_dtmf_generate_rx(duration, high_freq, low_freq, gain);
+	afe_dtmf_generate_rx((int64_t) duration, high_freq, low_freq, gain);
 	return 0;
 }
 
@@ -152,50 +152,9 @@ static int msm_dtmf_detect_volte_rx_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int msm_dtmf_detect_voice_tx_mute_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	int enable = ucontrol->value.integer.value[0];
-	int delay_us = ucontrol->value.integer.value[1];
-
-	pr_debug("%s: enable=%d delay_us=%d\n", __func__, enable, delay_us);
-	voc_enable_dtmf_mute_tx_detection(voc_get_session_id(VOICEMMODE1_NAME),
-					  enable, delay_us);
-
-	return 0;
-}
-
-static int msm_dtmf_detect_voice_tx_mute_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = 0;
-	return 0;
-}
-
-static int msm_dtmf_detect_volte_tx_mute_put(struct snd_kcontrol *kcontrol,
-					struct snd_ctl_elem_value *ucontrol)
-{
-	uint32_t session_id = 0;
-	int enable = ucontrol->value.integer.value[0];
-	int delay_us = ucontrol->value.integer.value[1];
-
-	pr_debug("%s: enable=%d delay_us=%d\n", __func__, enable, delay_us);
-	session_id = voc_get_session_id(VOLTE_SESSION_NAME);
-	voc_enable_dtmf_mute_tx_detection(session_id, enable, delay_us);
-
-	return 0;
-}
-
-static int msm_dtmf_detect_volte_tx_mute_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = 0;
-	return 0;
-}
-
 static struct snd_kcontrol_new msm_dtmf_controls[] = {
 	SOC_SINGLE_MULTI_EXT("DTMF_Generate Rx Low High Duration Gain",
-			     SND_SOC_NOPM, 0, 5000, 0, 4,
+			     SND_SOC_NOPM, 0, 65535, 0, 4,
 			     msm_dtmf_rx_generate_get,
 			     msm_dtmf_rx_generate_put),
 	SOC_SINGLE_EXT("DTMF_Detect Rx Voice enable", SND_SOC_NOPM, 0, 1, 0,
@@ -204,14 +163,6 @@ static struct snd_kcontrol_new msm_dtmf_controls[] = {
 	SOC_SINGLE_EXT("DTMF_Detect Rx VoLTE enable", SND_SOC_NOPM, 0, 1, 0,
 				msm_dtmf_detect_volte_rx_get,
 				msm_dtmf_detect_volte_rx_put),
-	SOC_SINGLE_MULTI_EXT("DTMF_Detect Tx mute voice enable", SND_SOC_NOPM,
-			     0, 65535, 0, 2,
-			     msm_dtmf_detect_voice_tx_mute_get,
-			     msm_dtmf_detect_voice_tx_mute_put),
-	SOC_SINGLE_MULTI_EXT("DTMF_Detect Tx mute volte enable", SND_SOC_NOPM,
-			     0, 65535, 0, 2,
-			     msm_dtmf_detect_volte_tx_mute_get,
-			     msm_dtmf_detect_volte_tx_mute_put),
 };
 
 static int msm_pcm_dtmf_probe(struct snd_soc_platform *platform)

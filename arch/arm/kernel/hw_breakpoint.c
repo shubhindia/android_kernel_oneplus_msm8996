@@ -29,14 +29,13 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/smp.h>
 #include <linux/cpu_pm.h>
+#include <linux/coresight.h>
 
 #include <asm/cacheflush.h>
 #include <asm/cputype.h>
 #include <asm/current.h>
 #include <asm/hw_breakpoint.h>
-#include <asm/kdebug.h>
 #include <asm/traps.h>
-#include <asm/hardware/coresight.h>
 
 /* Breakpoint currently in use for each BRP. */
 static DEFINE_PER_CPU(struct perf_event *, bp_on_reg[ARM_MAX_BRP]);
@@ -659,7 +658,7 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 		 * Per-cpu breakpoints are not supported by our stepping
 		 * mechanism.
 		 */
-		if (!bp->hw.bp_target)
+		if (!bp->hw.target)
 			return -EINVAL;
 
 		/*
@@ -698,6 +697,12 @@ static void disable_single_step(struct perf_event *bp)
 	arch_uninstall_hw_breakpoint(bp);
 	counter_arch_bp(bp)->step_ctrl.enabled = 0;
 	arch_install_hw_breakpoint(bp);
+}
+
+static int watchpoint_fault_on_uaccess(struct pt_regs *regs,
+				       struct arch_hw_breakpoint *info)
+{
+	return !user_mode(regs) && info->ctrl.privilege == ARM_BREAKPOINT_USER;
 }
 
 static void watchpoint_handler(unsigned long addr, unsigned int fsr,
@@ -759,16 +764,27 @@ static void watchpoint_handler(unsigned long addr, unsigned int fsr,
 		}
 
 		pr_debug("watchpoint fired: address = 0x%x\n", info->trigger);
+
+		/*
+		 * If we triggered a user watchpoint from a uaccess routine,
+		 * then handle the stepping ourselves since userspace really
+		 * can't help us with this.
+		 */
+		if (watchpoint_fault_on_uaccess(regs, info))
+			goto step;
+
 		perf_bp_event(wp, regs);
 
 		/*
-		 * If no overflow handler is present, insert a temporary
-		 * mismatch breakpoint so we can single-step over the
-		 * watchpoint trigger.
+		 * Defer stepping to the overflow handler if one is installed.
+		 * Otherwise, insert a temporary mismatch breakpoint so that
+		 * we can single-step over the watchpoint trigger.
 		 */
-		if (!wp->overflow_handler)
-			enable_single_step(wp, instruction_pointer(regs));
+		if (wp->overflow_handler)
+			goto unlock;
 
+step:
+		enable_single_step(wp, instruction_pointer(regs));
 unlock:
 		rcu_read_unlock();
 	}
@@ -998,7 +1014,7 @@ static void reset_ctrl_regs(void *unused)
 	 * Unconditionally clear the OS lock by writing a value
 	 * other than CS_LAR_KEY to the access register.
 	 */
-	ARM_DBG_WRITE(c1, c0, 4, ~CS_LAR_KEY);
+	ARM_DBG_WRITE(c1, c0, 4, ~CORESIGHT_UNLOCK);
 	isb();
 
 	/*
@@ -1086,6 +1102,22 @@ static int __init arch_hw_breakpoint_init(void)
 
 	if (!debug_arch_supported()) {
 		pr_info("debug architecture 0x%x unsupported.\n", debug_arch);
+		return 0;
+	}
+
+	/*
+	 * Scorpion CPUs (at least those in APQ8060) seem to set DBGPRSR.SPD
+	 * whenever a WFI is issued, even if the core is not powered down, in
+	 * violation of the architecture.  When DBGPRSR.SPD is set, accesses to
+	 * breakpoint and watchpoint registers are treated as undefined, so
+	 * this results in boot time and runtime failures when these are
+	 * accessed and we unexpectedly take a trap.
+	 *
+	 * It's not clear if/how this can be worked around, so we blacklist
+	 * Scorpion CPUs to avoid these issues.
+	*/
+	if (read_cpuid_part() == ARM_CPU_PART_SCORPION) {
+		pr_info("Scorpion CPU detected. Hardware breakpoints and watchpoints disabled\n");
 		return 0;
 	}
 

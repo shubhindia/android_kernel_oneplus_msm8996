@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2017 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,7 +22,6 @@
 #include <linux/msm_audio_ion.h>
 #include <linux/habmm.h>
 #include "../../../staging/android/ion/ion_priv.h"
-#include "../../../staging/android/ion/ion_hvenv_driver.h"
 
 #define MSM_AUDIO_ION_PROBED (1 << 0)
 
@@ -84,6 +83,7 @@ static int msm_audio_ion_smmu_map(struct ion_client *client,
 	struct msm_audio_smmu_vm_map_cmd_rsp cmd_rsp;
 	struct msm_audio_smmu_map_data *map_data = NULL;
 	struct msm_audio_smmu_vm_map_cmd smmu_map_cmd;
+	unsigned long delay = jiffies + (HZ / 2);
 
 	rc = ion_handle_get_size(client, handle, len);
 	if (rc) {
@@ -123,12 +123,15 @@ static int msm_audio_ion_smmu_map(struct ion_client *client,
 		goto err;
 	}
 
-	cmd_rsp_size = sizeof(cmd_rsp);
-	rc = habmm_socket_recv(msm_audio_ion_hab_handle,
-		(void *)&cmd_rsp,
-		&cmd_rsp_size,
-		0xFFFFFFFF,
-		0);
+	do {
+		cmd_rsp_size = sizeof(cmd_rsp);
+		rc = habmm_socket_recv(msm_audio_ion_hab_handle,
+			(void *)&cmd_rsp,
+			&cmd_rsp_size,
+			0xFFFFFFFF,
+			0);
+	} while (time_before(jiffies, delay) && (rc == -EINTR) &&
+			(cmd_rsp_size == 0));
 	if (rc) {
 		pr_err("%s: habmm_socket_recv failed %d\n",
 			__func__, rc);
@@ -138,7 +141,7 @@ static int msm_audio_ion_smmu_map(struct ion_client *client,
 	mutex_unlock(&(msm_audio_ion_data.smmu_map_mutex));
 
 	if (cmd_rsp_size != sizeof(cmd_rsp)) {
-		pr_err("%s: invalid size for cmd rsp %lu, expected %lu\n",
+		pr_err("%s: invalid size for cmd rsp %u, expected %zu\n",
 			__func__, cmd_rsp_size, sizeof(cmd_rsp));
 		rc = -EIO;
 		goto err;
@@ -182,6 +185,7 @@ static int msm_audio_ion_smmu_unmap(struct ion_client *client,
 	struct msm_audio_smmu_vm_unmap_cmd_rsp cmd_rsp;
 	struct msm_audio_smmu_map_data *map_data, *next;
 	struct msm_audio_smmu_vm_unmap_cmd smmu_unmap_cmd;
+	unsigned long delay = jiffies + (HZ / 2);
 
 	/*
 	 * Though list_for_each_entry_safe is delete safe, lock
@@ -206,12 +210,15 @@ static int msm_audio_ion_smmu_unmap(struct ion_client *client,
 				goto err;
 			}
 
-			cmd_rsp_size = sizeof(cmd_rsp);
-			rc = habmm_socket_recv(msm_audio_ion_hab_handle,
-				(void *)&cmd_rsp,
-				&cmd_rsp_size,
-				0xFFFFFFFF,
-				0);
+			do {
+				cmd_rsp_size = sizeof(cmd_rsp);
+				rc = habmm_socket_recv(msm_audio_ion_hab_handle,
+					(void *)&cmd_rsp,
+					&cmd_rsp_size,
+					0xFFFFFFFF,
+					0);
+			} while (time_before(jiffies, delay) &&
+					(rc == -EINTR) && (cmd_rsp_size == 0));
 			if (rc) {
 				pr_err("%s: habmm_socket_recv failed %d\n",
 					__func__, rc);
@@ -219,7 +226,7 @@ static int msm_audio_ion_smmu_unmap(struct ion_client *client,
 			}
 
 			if (cmd_rsp_size != sizeof(cmd_rsp)) {
-				pr_err("%s: invalid size for cmd rsp %lu\n",
+				pr_err("%s: invalid size for cmd rsp %u\n",
 					__func__, cmd_rsp_size);
 				rc = -EIO;
 				goto err;
@@ -346,6 +353,82 @@ err:
 }
 EXPORT_SYMBOL(msm_audio_ion_alloc);
 
+int msm_audio_ion_phys_free(struct ion_client *client,
+			    struct ion_handle *handle,
+			    ion_phys_addr_t *paddr,
+			    size_t *pa_len, u8 assign_type)
+{
+	if (!(msm_audio_ion_data.device_status & MSM_AUDIO_ION_PROBED)) {
+		pr_debug("%s:probe is not done, deferred\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	if (!client || !handle || !paddr || !pa_len) {
+		pr_err("%s: Invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	/* hyp assign is not supported in VM */
+
+	ion_free(client, handle);
+	ion_client_destroy(client);
+
+	return 0;
+}
+
+int msm_audio_ion_phys_assign(const char *name, struct ion_client **client,
+			      struct ion_handle **handle, int fd,
+			      ion_phys_addr_t *paddr,
+			      size_t *pa_len, u8 assign_type)
+{
+	int ret;
+
+	if (!(msm_audio_ion_data.device_status & MSM_AUDIO_ION_PROBED)) {
+		pr_debug("%s:probe is not done, deferred\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	if (!name || !client || !handle || !paddr || !pa_len) {
+		pr_err("%s: Invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	*client = msm_audio_ion_client_create(name);
+	if (IS_ERR_OR_NULL((void *)(*client))) {
+		pr_err("%s: ION create client failed\n", __func__);
+		return -EINVAL;
+	}
+
+	*handle = ion_import_dma_buf(*client, fd);
+	if (IS_ERR_OR_NULL((void *) (*handle))) {
+		pr_err("%s: ion import dma buffer failed\n",
+			__func__);
+		ret = -EINVAL;
+		goto err_destroy_client;
+	}
+
+	ret = ion_phys(*client, *handle, paddr, pa_len);
+	if (ret) {
+		pr_err("%s: could not get physical address for handle, ret = %d\n",
+			__func__, ret);
+		goto err_ion_handle;
+	}
+
+	/* hyp assign is not supported in VM */
+
+	return ret;
+
+err_ion_handle:
+	ion_free(*client, *handle);
+
+err_destroy_client:
+	ion_client_destroy(*client);
+	*client = NULL;
+	*handle = NULL;
+
+	return ret;
+}
+
 int msm_audio_ion_import(const char *name, struct ion_client **client,
 			struct ion_handle **handle, int fd,
 			unsigned long *ionflag, size_t bufsz,
@@ -373,8 +456,8 @@ int msm_audio_ion_import(const char *name, struct ion_client **client,
 	}
 
 	/* name should be audio_acdb_client or Audio_Dec_Client,
-	bufsz should be 0 and fd shouldn't be 0 as of now
-	*/
+	 * bufsz should be 0 and fd shouldn't be 0 as of now
+	 */
 	*handle = ion_import_dma_buf(*client, fd);
 	pr_debug("%s: DMA Buf name=%s, fd=%d handle=%pK\n", __func__,
 							name, fd, *handle);
@@ -518,8 +601,8 @@ int msm_audio_ion_mmap(struct audio_buffer *ab,
 
 		ret = ion_phys(ab->client, ab->handle, &phys_addr, &phys_len);
 		if (ret) {
-			pr_err("%s: Unable to get phys address from ION buffer: %d\n"
-				, __func__ , ret);
+			pr_err("%s: Unable to get phys address from ION buffer: %d\n",
+				__func__, ret);
 			return ret;
 		}
 		pr_debug("phys=%pK len=%zd\n", &phys_addr, phys_len);
@@ -552,7 +635,7 @@ struct ion_client *msm_audio_ion_client_create(const char *name)
 {
 	struct ion_client *pclient = NULL;
 
-	pclient = hvenv_ion_client_create(name);
+	pclient = msm_ion_client_create(name);
 	return pclient;
 }
 
@@ -579,8 +662,8 @@ int msm_audio_ion_import_legacy(const char *name, struct ion_client *client,
 	}
 	/* client is already created for legacy and given*/
 	/* name should be audio_acdb_client or Audio_Dec_Client,
-	bufsz should be 0 and fd shouldn't be 0 as of now
-	*/
+	 * bufsz should be 0 and fd shouldn't be 0 as of now
+	 */
 	*handle = ion_import_dma_buf(client, fd);
 	pr_debug("%s: DMA Buf name=%s, fd=%d handle=%pK\n", __func__,
 							name, fd, *handle);

@@ -385,7 +385,7 @@ irqreturn_t mhi_msi_ipa_handlr(int irq_number, void *dev_id)
 	/* Obtain client config from MSI */
 	ev_ring_props = &mhi_dev_ctxt->ev_ring_props[msi_num];
 	client_handle = mhi_dev_ctxt->client_handle_list[ev_ring_props->chan];
-	if (unlikely(client_handle == NULL)) {
+	if (unlikely(!client_handle)) {
 		mhi_log(mhi_dev_ctxt, MHI_MSG_INFO,
 			"Recv MSI for unreg chan:%u\n", ev_ring_props->chan);
 		return IRQ_HANDLED;

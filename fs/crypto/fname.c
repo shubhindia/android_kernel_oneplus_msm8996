@@ -37,9 +37,9 @@ static inline bool fscrypt_is_dot_dotdot(const struct qstr *str)
 int fname_encrypt(struct inode *inode, const struct qstr *iname,
 		  u8 *out, unsigned int olen)
 {
-	struct ablkcipher_request *req = NULL;
+	struct skcipher_request *req = NULL;
 	DECLARE_CRYPTO_WAIT(wait);
-	struct crypto_ablkcipher *tfm = inode->i_crypt_info->ci_ctfm;
+	struct crypto_skcipher *tfm = inode->i_crypt_info->ci_ctfm;
 	int res = 0;
 	char iv[FS_CRYPTO_BLOCK_SIZE];
 	struct scatterlist sg;
@@ -57,18 +57,18 @@ int fname_encrypt(struct inode *inode, const struct qstr *iname,
 	memset(iv, 0, FS_CRYPTO_BLOCK_SIZE);
 
 	/* Set up the encryption request */
-	req = ablkcipher_request_alloc(tfm, GFP_NOFS);
+	req = skcipher_request_alloc(tfm, GFP_NOFS);
 	if (!req)
 		return -ENOMEM;
-	ablkcipher_request_set_callback(req,
+	skcipher_request_set_callback(req,
 			CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
 			crypto_req_done, &wait);
 	sg_init_one(&sg, out, olen);
-	ablkcipher_request_set_crypt(req, &sg, &sg, olen, iv);
+	skcipher_request_set_crypt(req, &sg, &sg, olen, iv);
 
 	/* Do the encryption */
-	res = crypto_wait_req(crypto_ablkcipher_encrypt(req), &wait);
-	ablkcipher_request_free(req);
+	res = crypto_wait_req(crypto_skcipher_encrypt(req), &wait);
+	skcipher_request_free(req);
 	if (res < 0) {
 		fscrypt_err(inode->i_sb,
 			    "Filename encryption failed for inode %lu: %d",
@@ -90,18 +90,18 @@ static int fname_decrypt(struct inode *inode,
 				const struct fscrypt_str *iname,
 				struct fscrypt_str *oname)
 {
-	struct ablkcipher_request *req = NULL;
+	struct skcipher_request *req = NULL;
 	DECLARE_CRYPTO_WAIT(wait);
 	struct scatterlist src_sg, dst_sg;
-	struct crypto_ablkcipher *tfm = inode->i_crypt_info->ci_ctfm;
+	struct crypto_skcipher *tfm = inode->i_crypt_info->ci_ctfm;
 	int res = 0;
 	char iv[FS_CRYPTO_BLOCK_SIZE];
 
 	/* Allocate request */
-	req = ablkcipher_request_alloc(tfm, GFP_NOFS);
+	req = skcipher_request_alloc(tfm, GFP_NOFS);
 	if (!req)
 		return -ENOMEM;
-	ablkcipher_request_set_callback(req,
+	skcipher_request_set_callback(req,
 		CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
 		crypto_req_done, &wait);
 
@@ -111,9 +111,9 @@ static int fname_decrypt(struct inode *inode,
 	/* Create decryption request */
 	sg_init_one(&src_sg, iname->name, iname->len);
 	sg_init_one(&dst_sg, oname->name, oname->len);
-	ablkcipher_request_set_crypt(req, &src_sg, &dst_sg, iname->len, iv);
-	res = crypto_wait_req(crypto_ablkcipher_decrypt(req), &wait);
-	ablkcipher_request_free(req);
+	skcipher_request_set_crypt(req, &src_sg, &dst_sg, iname->len, iv);
+	res = crypto_wait_req(crypto_skcipher_decrypt(req), &wait);
+	skcipher_request_free(req);
 	if (res < 0) {
 		fscrypt_err(inode->i_sb,
 			    "Filename decryption failed for inode %lu: %d",

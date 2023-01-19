@@ -76,6 +76,12 @@ static inline void proc_register_uid(kuid_t uid) {}
 
 #endif /* CONFIG_PROC_FS */
 
+#ifdef CONFIG_PROC_UID
+extern void proc_register_uid(kuid_t uid);
+#else
+static inline void proc_register_uid(kuid_t uid) {}
+#endif
+
 struct net;
 
 static inline struct proc_dir_entry *proc_net_mkdir(

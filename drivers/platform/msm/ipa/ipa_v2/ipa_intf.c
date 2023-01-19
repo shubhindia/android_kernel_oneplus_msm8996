@@ -507,7 +507,7 @@ int ipa2_send_msg(struct ipa_msg_meta *meta, void *buff,
 	}
 
 	if (meta == NULL || (buff == NULL && callback != NULL) ||
-	    (buff != NULL && callback == NULL)) {
+	    (buff != NULL && callback == NULL) || buff == NULL) {
 		IPAERR_RL("invalid param meta=%p buff=%p, callback=%p\n",
 		       meta, buff, callback);
 		return -EINVAL;

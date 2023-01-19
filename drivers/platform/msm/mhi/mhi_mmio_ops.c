@@ -127,7 +127,7 @@ int mhi_init_mmio(struct mhi_device_ctxt *mhi_dev_ctxt)
 	mhi_log(mhi_dev_ctxt, MHI_MSG_INFO, "Testing MHI Ver\n");
 	mhi_dev_ctxt->core.mhi_ver = mhi_reg_read(
 				mhi_dev_ctxt->mmio_info.mmio_addr, MHIVER);
-	if (MHI_VERSION != mhi_dev_ctxt->core.mhi_ver) {
+	if (mhi_dev_ctxt->core.mhi_ver != MHI_VERSION) {
 		mhi_log(mhi_dev_ctxt, MHI_MSG_CRITICAL,
 			"Bad MMIO version, 0x%x\n", mhi_dev_ctxt->core.mhi_ver);
 			return -ENXIO;

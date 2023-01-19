@@ -5,7 +5,7 @@
  * Phillip Lougher <phillip@squashfs.org.uk>
  *
  * This work is licensed under the terms of the GNU GPL, version 2. See
- * the COPYING file in the top-level directory.
+ * the COPYING file in the top-level squashfsory.
  */
 
 struct squashfs_page_actor {

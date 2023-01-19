@@ -1,25 +1,15 @@
-/*
- * Userspace implementations of __get_datapage
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
+#include <linux/linkage.h>
+#include <asm/asm-offsets.h>
 
-#ifndef __VDSO_DATAPAGE_H
-#define __VDSO_DATAPAGE_H
+	.align 2
+.L_vdso_data_ptr:
+	.long	_start - . - VDSO_DATA_SIZE
 
-#include <linux/types.h>
-#include <asm/vdso_datapage.h>
-
-extern const struct vdso_data *__get_datapage(void);
-
-#endif /* __VDSO_DATAPAGE_H */
+ENTRY(__get_datapage)
+	.fnstart
+	adr	r0, .L_vdso_data_ptr
+	ldr	r1, [r0]
+	add	r0, r0, r1
+	bx	lr
+	.fnend
+ENDPROC(__get_datapage)

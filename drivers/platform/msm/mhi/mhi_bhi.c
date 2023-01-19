@@ -45,7 +45,7 @@ static int bhi_alloc_bhie_xfer(struct mhi_device_ctxt *mhi_dev_ctxt,
 	int segments = DIV_ROUND_UP(size, seg_size) + 1;
 	int i;
 	struct scatterlist *sg_list;
-	struct bhie_mem_info *bhie_mem_info, *info = NULL;
+	struct bhie_mem_info *bhie_mem_info, *info;
 
 	mhi_log(mhi_dev_ctxt, MHI_MSG_INFO,
 		"Total size:%lu total_seg:%d seg_size:%lu\n",
@@ -82,9 +82,6 @@ static int bhi_alloc_bhie_xfer(struct mhi_device_ctxt *mhi_dev_ctxt,
 			"Seg:%d unaligned Img: 0x%llx aligned:0x%llx\n",
 			i, info->dma_handle, info->phys_addr);
 	}
-
-	if (!info)
-		goto alloc_dma_error;
 
 	sg_init_table(sg_list, segments);
 	sg_set_buf(sg_list, info->aligned, info->size);
@@ -644,7 +641,6 @@ int bhi_probe(struct mhi_device_ctxt *mhi_dev_ctxt)
 		image += to_copy;
 	}
 
-	fw_table->sequence++;
 	release_firmware(firmware);
 
 	/* allocate memory and setup rddm table */
@@ -665,7 +661,6 @@ int bhi_probe(struct mhi_device_ctxt *mhi_dev_ctxt)
 					rddm_table->bhie_mem_info[i].phys_addr;
 				sg_dma_len(itr) = size;
 			}
-			rddm_table->sequence++;
 		} else {
 			/* out of memory for rddm, not fatal error */
 			mhi_log(mhi_dev_ctxt, MHI_MSG_INFO,

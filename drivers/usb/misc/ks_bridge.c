@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014, 2017, Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, 2017-2018, Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -113,6 +113,7 @@ struct ks_bridge {
 #define DBG_MAX_MSG   500
 	unsigned int	dbg_idx;
 	rwlock_t	dbg_lock;
+
 	char     (dbgbuf[DBG_MAX_MSG])[DBG_MSG_LEN];   /* buffer */
 };
 
@@ -462,6 +463,8 @@ static const struct usb_device_id ksb_usb_ids[] = {
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9091, 0), },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x901D, 0), },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x900E, 0), },
+	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9900, 0), },
+	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9901, 0), },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x9048, 2),
 	.driver_info = (unsigned long)&ksb_efs_hsic_dev, },
 	{ USB_DEVICE_INTERFACE_NUMBER(0x5c6, 0x904C, 2),

@@ -56,7 +56,7 @@ static struct squashfs_page_actor *actor_from_page_cache(
 	struct page **page;
 	struct squashfs_page_actor *actor;
 	int i, n;
-	gfp_t gfp = GFP_KERNEL;
+	gfp_t gfp = mapping_gfp_constraint(mapping, GFP_KERNEL);
 
 	page = kmalloc_array(actor_pages, sizeof(void *), GFP_KERNEL);
 	if (!page)
@@ -89,7 +89,7 @@ static struct squashfs_page_actor *actor_from_page_cache(
 
 		if (PageUptodate(page[i])) {
 			unlock_page(page[i]);
-			page_cache_release(page[i]);
+			put_page(page[i]);
 			page[i] = NULL;
 		}
 	}
@@ -131,15 +131,15 @@ int squashfs_readpages_block(struct page *target_page,
 	if (bsize && !SQUASHFS_COMPRESSED_BLOCK(bsize)) {
 		u64 block_end = block + msblk->block_size;
 
-		block += (page_index & mask) * PAGE_SIZE;
-		actor_pages = (block_end - block) / PAGE_SIZE;
+		block += (page_index & mask) * PAGE_CACHE_SIZE;
+		actor_pages = (block_end - block) / PAGE_CACHE_SIZE;
 		if (*nr_pages < actor_pages)
 			actor_pages = *nr_pages;
 		start_index = page_index;
-		bsize = min_t(int, bsize, (PAGE_SIZE * actor_pages)
+		bsize = min_t(int, bsize, (PAGE_CACHE_SIZE * actor_pages)
 					  | SQUASHFS_COMPRESSED_BIT_BLOCK);
 	} else {
-		file_end = (i_size_read(inode) - 1) >> PAGE_SHIFT;
+		file_end = (i_size_read(inode) - 1) >> PAGE_CACHE_SHIFT;
 		start_index = page_index & ~mask;
 		end_index = start_index | mask;
 		if (end_index > file_end)

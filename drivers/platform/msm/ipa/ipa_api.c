@@ -126,7 +126,6 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_Q6_DECOMP_PROD),
 	__stringify(IPA_CLIENT_Q6_DECOMP2_PROD),
 	__stringify(IPA_CLIENT_UC_USB_PROD),
-	__stringify(IPA_CLIENT_ETHERNET_PROD),
 
 	/* Below PROD client type is only for test purpose */
 	__stringify(IPA_CLIENT_TEST_PROD),
@@ -165,16 +164,132 @@ const char *ipa_clients_strings[IPA_CLIENT_MAX] = {
 	__stringify(IPA_CLIENT_Q6_DECOMP_CONS),
 	__stringify(IPA_CLIENT_Q6_DECOMP2_CONS),
 	__stringify(IPA_CLIENT_Q6_LTE_WIFI_AGGR_CONS),
-	__stringify(IPA_CLIENT_ETHERNET_CONS),
 	/* Below CONS client type is only for test purpose */
 	__stringify(IPA_CLIENT_TEST_CONS),
 	__stringify(IPA_CLIENT_TEST1_CONS),
 	__stringify(IPA_CLIENT_TEST2_CONS),
 	__stringify(IPA_CLIENT_TEST3_CONS),
 	__stringify(IPA_CLIENT_TEST4_CONS),
-	__stringify(IPA_CLIENT_DUMMY_CONS),
 };
 
+/**
+ * ipa_write_64() - convert 64 bit value to byte array
+ * @w: 64 bit integer
+ * @dest: byte array
+ *
+ * Return value: converted value
+ */
+u8 *ipa_write_64(u64 w, u8 *dest)
+{
+	if (unlikely(dest == NULL)) {
+		pr_err("ipa_write_64: NULL address!\n");
+		return dest;
+	}
+	*dest++ = (u8)((w) & 0xFF);
+	*dest++ = (u8)((w >> 8) & 0xFF);
+	*dest++ = (u8)((w >> 16) & 0xFF);
+	*dest++ = (u8)((w >> 24) & 0xFF);
+	*dest++ = (u8)((w >> 32) & 0xFF);
+	*dest++ = (u8)((w >> 40) & 0xFF);
+	*dest++ = (u8)((w >> 48) & 0xFF);
+	*dest++ = (u8)((w >> 56) & 0xFF);
+
+	return dest;
+}
+
+/**
+ * ipa_write_32() - convert 32 bit value to byte array
+ * @w: 32 bit integer
+ * @dest: byte array
+ *
+ * Return value: converted value
+ */
+u8 *ipa_write_32(u32 w, u8 *dest)
+{
+	if (unlikely(dest == NULL)) {
+		pr_err("ipa_write_32: NULL address!\n");
+		return dest;
+	}
+	*dest++ = (u8)((w) & 0xFF);
+	*dest++ = (u8)((w >> 8) & 0xFF);
+	*dest++ = (u8)((w >> 16) & 0xFF);
+	*dest++ = (u8)((w >> 24) & 0xFF);
+
+	return dest;
+}
+
+/**
+ * ipa_write_16() - convert 16 bit value to byte array
+ * @hw: 16 bit integer
+ * @dest: byte array
+ *
+ * Return value: converted value
+ */
+u8 *ipa_write_16(u16 hw, u8 *dest)
+{
+	if (unlikely(dest == NULL)) {
+		pr_err("ipa_write_16: NULL address!\n");
+		return dest;
+	}
+	*dest++ = (u8)((hw) & 0xFF);
+	*dest++ = (u8)((hw >> 8) & 0xFF);
+
+	return dest;
+}
+
+/**
+ * ipa_write_8() - convert 8 bit value to byte array
+ * @hw: 8 bit integer
+ * @dest: byte array
+ *
+ * Return value: converted value
+ */
+u8 *ipa_write_8(u8 b, u8 *dest)
+{
+	if (unlikely(dest == NULL)) {
+		pr_err("ipa_write_8: NULL address!\n");
+		return dest;
+	}
+	*dest++ = (b) & 0xFF;
+
+	return dest;
+}
+
+/**
+ * ipa_pad_to_64() - pad byte array to 64 bit value
+ * @dest: byte array
+ *
+ * Return value: padded value
+ */
+u8 *ipa_pad_to_64(u8 *dest)
+{
+	int i = (long)dest & 0x7;
+	int j;
+
+	if (i)
+		for (j = 0; j < (8 - i); j++)
+			*dest++ = 0;
+
+	return dest;
+}
+
+/**
+ * ipa_pad_to_32() - pad byte array to 32 bit value
+ * @dest: byte array
+ *
+ * Return value: padded value
+ */
+u8 *ipa_pad_to_32(u8 *dest)
+{
+	int i = (long)dest & 0x3;
+	int j;
+
+	if (i)
+		for (j = 0; j < (4 - i); j++)
+			*dest++ = 0;
+
+	return dest;
+}
 
 /**
  * ipa_connect() - low-level IPA client connect
@@ -1586,6 +1701,25 @@ u16 ipa_get_smem_restr_bytes(void)
 EXPORT_SYMBOL(ipa_get_smem_restr_bytes);
 
 /**
+ * ipa_broadcast_wdi_quota_reach_ind() - quota reach
+ * @uint32_t fid: [in] input netdev ID
+ * @uint64_t num_bytes: [in] used bytes
+ *
+ * Returns:	0 on success, negative on failure
+ */
+int ipa_broadcast_wdi_quota_reach_ind(uint32_t fid,
+		uint64_t num_bytes)
+{
+	int ret;
+
+	IPA_API_DISPATCH_RETURN(ipa_broadcast_wdi_quota_reach_ind,
+		fid, num_bytes);
+
+	return ret;
+}
+EXPORT_SYMBOL(ipa_broadcast_wdi_quota_reach_ind);
+
+/**
  * ipa_uc_wdi_get_dbpa() - To retrieve
  * doorbell physical address of wlan pipes
  * @param:  [in/out] input/output parameters
@@ -2205,12 +2339,12 @@ int ipa_remove_interrupt_handler(enum ipa_irq_type interrupt)
 EXPORT_SYMBOL(ipa_remove_interrupt_handler);
 
 /**
-* ipa_restore_suspend_handler() - restores the original suspend IRQ handler
-* as it was registered in the IPA init sequence.
-* Return codes:
-* 0: success
-* -EPERM: failed to remove current handler or failed to add original handler
-* */
+ * ipa_restore_suspend_handler() - restores the original suspend IRQ handler
+ * as it was registered in the IPA init sequence.
+ * Return codes:
+ * 0: success
+ * -EPERM: failed to remove current handler or failed to add original handler
+ */
 int ipa_restore_suspend_handler(void)
 {
 	int ret;
@@ -2462,15 +2596,15 @@ EXPORT_SYMBOL(ipa_create_wdi_mapping);
 
 /**
  * ipa_get_gsi_ep_info() - provide gsi ep information
- * @client: IPA client type
+ * @ipa_ep_idx: IPA endpoint index
  *
  * Return value: pointer to ipa_gsi_ep_info
  */
-const struct ipa_gsi_ep_config *ipa_get_gsi_ep_info(enum ipa_client_type client)
+struct ipa_gsi_ep_config *ipa_get_gsi_ep_info(int ipa_ep_idx)
 {
 	if (!ipa_api_ctrl || !ipa_api_ctrl->ipa_get_gsi_ep_info)
 		return NULL;
-	return ipa_api_ctrl->ipa_get_gsi_ep_info(client);
+	return ipa_api_ctrl->ipa_get_gsi_ep_info(ipa_ep_idx);
 }
 EXPORT_SYMBOL(ipa_get_gsi_ep_info);
 
@@ -2488,21 +2622,6 @@ int ipa_stop_gsi_channel(u32 clnt_hdl)
 	return ret;
 }
 EXPORT_SYMBOL(ipa_stop_gsi_channel);
-
-/**
- * ipa_start_gsi_channel()- Startsa GSI channel in IPA
- *
- * Return value: 0 on success, negative otherwise
- */
-int ipa_start_gsi_channel(u32 clnt_hdl)
-{
-	int ret;
-
-	IPA_API_DISPATCH_RETURN(ipa_start_gsi_channel, clnt_hdl);
-
-	return ret;
-}
-EXPORT_SYMBOL(ipa_start_gsi_channel);
 
 /**
  * ipa_get_version_string() - Get string representation of IPA version
@@ -2618,6 +2737,42 @@ static int ipa_generic_plat_drv_probe(struct platform_device *pdev_p)
 
 	return result;
 }
+
+static void ipa_generic_plat_drv_shutdown(struct platform_device *pdev_p)
+{
+	int result;
+
+	pr_info("ipa: IPA driver shutdown started for %s\n",
+		pdev_p->dev.of_node->name);
+
+	if (!ipa_api_ctrl) {
+		pr_err("ipa: invalid ipa_api_ctrl\n");
+		return;
+	}
+
+	/* call probe based on IPA HW version */
+	switch (ipa_api_hw_type) {
+	case IPA_HW_v2_0:
+	case IPA_HW_v2_1:
+	case IPA_HW_v2_5:
+	case IPA_HW_v2_6L:
+		result = ipa_plat_drv_shutdown(pdev_p, ipa_api_ctrl,
+			ipa_plat_drv_match);
+		break;
+	case IPA_HW_v3_0:
+	case IPA_HW_v3_1:
+	case IPA_HW_v3_5:
+	case IPA_HW_v3_5_1:
+	default:
+		pr_err("ipa: ipa_generic_plat_drv_shutdown, unsupported version %d\n",
+			ipa_api_hw_type);
+		return;
+	}
+
+	if (result)
+		pr_err("ipa: ipa_generic_plat_drv_shutdown failed\n");
+}
+
 
 static int ipa_ap_suspend(struct device *dev)
 {
@@ -2815,6 +2970,37 @@ void ipa_assert(void)
 }
 
 /**
+ * ipa_rx_poll() - Poll the rx packets from IPA HW in the
+ * softirq context
+ *
+ * @budget: number of packets to be polled in single iteration
+ *
+ * Return codes: >= 0  : Actual number of packets polled
+ *
+ */
+int ipa_rx_poll(u32 clnt_hdl, int budget)
+{
+	int ret;
+
+	IPA_API_DISPATCH_RETURN(ipa_rx_poll, clnt_hdl, budget);
+
+	return ret;
+}
+EXPORT_SYMBOL(ipa_rx_poll);
+
+/**
+ * ipa_recycle_wan_skb() - Recycle the Wan skb
+ *
+ * @skb: skb that needs to recycle
+ *
+ */
+void ipa_recycle_wan_skb(struct sk_buff *skb)
+{
+	IPA_API_DISPATCH(ipa_recycle_wan_skb, skb);
+}
+EXPORT_SYMBOL(ipa_recycle_wan_skb);
+
+/**
  * ipa_setup_uc_ntn_pipes() - setup uc offload pipes
  */
 int ipa_setup_uc_ntn_pipes(struct ipa_ntn_conn_in_params *inp,
@@ -2839,18 +3025,6 @@ int ipa_tear_down_uc_offload_pipes(int ipa_ep_idx_ul,
 
 	IPA_API_DISPATCH_RETURN(ipa_tear_down_uc_offload_pipes, ipa_ep_idx_ul,
 		ipa_ep_idx_dl);
-
-	return ret;
-}
-
-/**
- * ipa_tz_unlock_reg() - Allow AP access to memory regions controlled by TZ
- */
-int ipa_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs)
-{
-	int ret;
-
-	IPA_API_DISPATCH_RETURN(ipa_tz_unlock_reg, reg_info, num_regs);
 
 	return ret;
 }
@@ -2889,57 +3063,6 @@ void ipa_ntn_uc_dereg_rdyCB(void)
 }
 EXPORT_SYMBOL(ipa_ntn_uc_dereg_rdyCB);
 
-/**
- * ipa_conn_wdi3_pipes() - connect wdi3 pipes
- */
-int ipa_conn_wdi3_pipes(struct ipa_wdi3_conn_in_params *in,
-	struct ipa_wdi3_conn_out_params *out)
-{
-	int ret;
-
-	IPA_API_DISPATCH_RETURN(ipa_conn_wdi3_pipes, in, out);
-
-	return ret;
-}
-
-/**
- * ipa_disconn_wdi3_pipes() - disconnect wdi3 pipes
- */
-int ipa_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx)
-{
-	int ret;
-
-	IPA_API_DISPATCH_RETURN(ipa_disconn_wdi3_pipes, ipa_ep_idx_tx,
-		ipa_ep_idx_rx);
-
-	return ret;
-}
-
-/**
- * ipa_enable_wdi3_pipes() - enable wdi3 pipes
- */
-int ipa_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx)
-{
-	int ret;
-
-	IPA_API_DISPATCH_RETURN(ipa_enable_wdi3_pipes, ipa_ep_idx_tx,
-		ipa_ep_idx_rx);
-
-	return ret;
-}
-
-/**
- * ipa_disable_wdi3_pipes() - disable wdi3 pipes
- */
-int ipa_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx)
-{
-	int ret;
-
-	IPA_API_DISPATCH_RETURN(ipa_disable_wdi3_pipes, ipa_ep_idx_tx,
-		ipa_ep_idx_rx);
-
-	return ret;
-}
 
 static const struct dev_pm_ops ipa_pm_ops = {
 	.suspend_noirq = ipa_ap_suspend,
@@ -2954,6 +3077,7 @@ static struct platform_driver ipa_plat_drv = {
 		.pm = &ipa_pm_ops,
 		.of_match_table = ipa_plat_drv_match,
 	},
+	.shutdown = ipa_generic_plat_drv_shutdown,
 };
 
 static int __init ipa_module_init(void)

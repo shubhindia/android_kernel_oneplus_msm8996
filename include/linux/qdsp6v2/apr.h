@@ -69,7 +69,9 @@ struct apr_hdr {
 #define APR_DOMAIN_MODEM	0x3
 #define APR_DOMAIN_ADSP	0x4
 #define APR_DOMAIN_APPS	0x5
-#define APR_DOMAIN_MAX	0x6
+#define APR_DOMAIN_SDSP	0x8
+#define APR_DOMAIN_MAX	0x9
+
 
 /* ADSP service IDs */
 #define APR_SVC_TEST_CLIENT     0x2
@@ -93,6 +95,9 @@ struct apr_hdr {
 #define APR_SVC_CVS		0x5
 #define APR_SVC_CVP		0x6
 #define APR_SVC_SRD		0x7
+
+/* Sensor DSP Micro Audio Service IDs */
+#define APR_SVC_MAS     0x3
 
 /* APR Port IDs */
 #define APR_MAX_PORTS		0x80
@@ -176,8 +181,8 @@ inline int apr_fill_hdr(void *handle, uint32_t *buf, uint16_t src_port,
 
 int apr_send_pkt(void *handle, uint32_t *buf);
 int apr_deregister(void *handle);
-void subsys_notif_register(struct notifier_block *mod_notif,
-				struct notifier_block *lp_notif);
+void subsys_notif_register(char *client_name, int domain,
+			   struct notifier_block *nb);
 int apr_get_dest_id(char *dest);
 uint16_t apr_get_data_src(struct apr_hdr *hdr);
 void change_q6_state(int state);

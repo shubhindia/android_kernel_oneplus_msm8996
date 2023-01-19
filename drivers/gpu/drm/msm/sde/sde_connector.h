@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,6 +21,9 @@
 #include "msm_prop.h"
 #include "sde_kms.h"
 #include "sde_fence.h"
+
+#define SDE_MODE_HPD_ON        0
+#define SDE_MODE_HPD_OFF       1
 
 #define SDE_CONNECTOR_NAME_SIZE	16
 
@@ -120,6 +123,53 @@ struct sde_connector_ops {
 	 * Returns: Zero on success
 	 */
 	int (*get_info)(struct msm_display_info *info, void *display);
+
+	int (*set_backlight)(void *display, u32 bl_lvl);
+
+
+	/**
+	 * pre_kickoff - trigger display to program kickoff-time features
+	 * @connector: Pointer to drm connector structure
+	 * @display: Pointer to private display structure
+	 * @params: Parameter bundle of connector-stored information for
+	 *	kickoff-time programming into the display
+	 * Returns: Zero on success
+	 */
+	int (*pre_kickoff)(struct drm_connector *connector,
+		void *display,
+		struct msm_display_kickoff_params *params);
+
+	/**
+	 * mode_needs_full_range - does the mode need full range
+	 * quantization
+	 * @display: Pointer to private display structure
+	 * Returns: true or false based on whether full range is needed
+	 */
+	bool (*mode_needs_full_range)(void *display);
+
+	/**
+	 * get_csc_type - returns the CSC type to be used
+	 * by the CDM block based on HDR state
+	 * @connector: Pointer to drm connector structure
+	 * @display: Pointer to private display structure
+	 * Returns: type of CSC matrix to be used
+	 */
+	enum sde_csc_type (*get_csc_type)(struct drm_connector *connector,
+		void *display);
+
+	/**
+	 * set_power - update dpms setting
+	 * @connector: Pointer to drm connector structure
+	 * @power_mode: One of the following,
+	 *		SDE_MODE_DPMS_ON
+	 *		SDE_MODE_DPMS_LP1
+	 *		SDE_MODE_DPMS_LP2
+	 *		SDE_MODE_DPMS_OFF
+	 * @display: Pointer to private display structure
+	 * Returns: Zero on success
+	 */
+	int (*set_power)(struct drm_connector *connector,
+			int power_mode, void *display);
 };
 
 /**
@@ -132,11 +182,16 @@ struct sde_connector_ops {
  * @mmu_secure: MMU id for secure buffers
  * @mmu_unsecure: MMU id for unsecure buffers
  * @name: ASCII name of connector
+ * @lock: Mutex lock object for this structure
  * @retire_fence: Retire fence reference
  * @ops: Local callback function pointer table
+ * @dpms_mode: DPMS property setting from user space
+ * @lp_mode: LP property setting from user space
+ * @last_panel_power_mode: Last consolidated dpms/lp mode setting
  * @property_info: Private structure for generic property handling
  * @property_data: Array of private data for generic property handling
  * @blob_caps: Pointer to blob structure for 'capabilities' property
+ * @blob_hdr: Pointer to blob structure for 'hdr_properties' property
  */
 struct sde_connector {
 	struct drm_connector base;
@@ -147,16 +202,22 @@ struct sde_connector {
 	struct drm_panel *panel;
 	void *display;
 
-	int mmu_id[SDE_IOMMU_DOMAIN_MAX];
+	struct msm_gem_address_space *aspace[SDE_IOMMU_DOMAIN_MAX];
 
 	char name[SDE_CONNECTOR_NAME_SIZE];
 
+	struct mutex lock;
 	struct sde_fence retire_fence;
 	struct sde_connector_ops ops;
+	int dpms_mode;
+	u64 hpd_mode;
+	int lp_mode;
+	int last_panel_power_mode;
 
 	struct msm_property_info property_info;
 	struct msm_property_data property_data[CONNECTOR_PROP_COUNT];
 	struct drm_property_blob *blob_caps;
+	struct drm_property_blob *blob_hdr;
 };
 
 /**
@@ -172,7 +233,7 @@ struct sde_connector {
  * Returns: Pointer to associated private display structure
  */
 #define sde_connector_get_display(C) \
-	((C) ? to_sde_connector((C))->display : 0)
+	((C) ? to_sde_connector((C))->display : NULL)
 
 /**
  * sde_connector_get_panel - get sde connector's private panel pointer
@@ -180,7 +241,7 @@ struct sde_connector {
  * Returns: Pointer to associated private display structure
  */
 #define sde_connector_get_panel(C) \
-	((C) ? to_sde_connector((C))->panel : 0)
+	((C) ? to_sde_connector((C))->panel : NULL)
 
 /**
  * sde_connector_get_encoder - get sde connector's private encoder pointer
@@ -188,7 +249,7 @@ struct sde_connector {
  * Returns: Pointer to associated private encoder structure
  */
 #define sde_connector_get_encoder(C) \
-	((C) ? to_sde_connector((C))->encoder : 0)
+	((C) ? to_sde_connector((C))->encoder : NULL)
 
 /**
  * sde_connector_get_propinfo - get sde connector's property info pointer
@@ -196,20 +257,22 @@ struct sde_connector {
  * Returns: Pointer to associated private property info structure
  */
 #define sde_connector_get_propinfo(C) \
-	((C) ? &to_sde_connector((C))->property_info : 0)
+	((C) ? &to_sde_connector((C))->property_info : NULL)
 
 /**
  * struct sde_connector_state - private connector status structure
  * @base: Base drm connector structure
  * @out_fb: Pointer to output frame buffer, if applicable
- * @mmu_id: MMU ID for accessing frame buffer objects, if applicable
+ * @aspace: Address space for accessing frame buffer objects, if applicable
  * @property_values: Local cache of current connector property values
+ * @hdr_ctrl: HDR control info passed from userspace
  */
 struct sde_connector_state {
 	struct drm_connector_state base;
 	struct drm_framebuffer *out_fb;
-	int mmu_id;
+	struct msm_gem_address_space *aspace;
 	uint64_t property_values[CONNECTOR_PROP_COUNT];
+	struct drm_msm_ext_panel_hdr_ctrl hdr_ctrl;
 };
 
 /**
@@ -237,7 +300,7 @@ struct sde_connector_state {
  * Returns: Integer value of requested property
  */
 #define sde_connector_get_property_values(S) \
-	((S) ? (to_sde_connector_state((S))->property_values) : 0)
+	((S) ? (to_sde_connector_state((S))->property_values) : NULL)
 
 /**
  * sde_connector_get_out_fb - query out_fb value from sde connector state
@@ -245,7 +308,21 @@ struct sde_connector_state {
  * Returns: Output fb associated with specified connector state
  */
 #define sde_connector_get_out_fb(S) \
-	((S) ? to_sde_connector_state((S))->out_fb : 0)
+	((S) ? to_sde_connector_state((S))->out_fb : NULL)
+
+/**
+ * sde_connector_get_topology_name - helper accessor to retrieve topology_name
+ * @connector: pointer to drm connector
+ * Returns: value of the CONNECTOR_PROP_TOPOLOGY_NAME property or 0
+ */
+static inline uint64_t sde_connector_get_topology_name(
+		struct drm_connector *connector)
+{
+	if (!connector || !connector->state)
+		return 0;
+	return sde_connector_get_property(connector->state,
+			CONNECTOR_PROP_TOPOLOGY_NAME);
+}
 
 /**
  * sde_connector_init - create drm connector object for a given display
@@ -286,6 +363,53 @@ void sde_connector_complete_commit(struct drm_connector *connector);
  */
 int sde_connector_get_info(struct drm_connector *connector,
 		struct msm_display_info *info);
+
+/**
+ * sde_connector_pre_kickoff - trigger kickoff time feature programming
+ * @connector: Pointer to drm connector object
+ * Returns: Zero on success
+ */
+int sde_connector_pre_kickoff(struct drm_connector *connector);
+
+/**
+ * sde_connector_mode_needs_full_range - query quantization type
+ * for the connector mode
+ * @connector: Pointer to drm connector object
+ * Returns: true OR false based on connector mode
+ */
+bool sde_connector_mode_needs_full_range(struct drm_connector *connector);
+
+/**
+ * sde_connector_get_csc_type - query csc type
+ * to be used for the connector
+ * @connector: Pointer to drm connector object
+ * Returns: csc type based on connector HDR state
+ */
+enum sde_csc_type sde_connector_get_csc_type(struct drm_connector *conn);
+
+/**
+ * sde_connector_get_dpms - query dpms setting
+ * @connector: Pointer to drm connector structure
+ * Returns: Current DPMS setting for connector
+ */
+int sde_connector_get_dpms(struct drm_connector *connector);
+
+/**
+ * sde_connector_needs_offset - adjust the output fence offset based on
+ *                              display type
+ * @connector: Pointer to drm connector object
+ * Returns: true if offset is required, false for all other cases.
+ */
+static inline bool sde_connector_needs_offset(struct drm_connector *connector)
+{
+	struct sde_connector *c_conn;
+
+	if (!connector)
+		return false;
+
+	c_conn = to_sde_connector(connector);
+	return (c_conn->connector_type != DRM_MODE_CONNECTOR_VIRTUAL);
+}
 
 #endif /* _SDE_CONNECTOR_H_ */
 

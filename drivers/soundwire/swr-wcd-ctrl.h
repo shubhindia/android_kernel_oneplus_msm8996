@@ -23,6 +23,10 @@
 
 #define SWR_MSTR_PORT_LEN	8 /* Number of master ports */
 
+#define SWRM_VERSION_1_0 0x01010000
+#define SWRM_VERSION_1_2 0x01030000
+#define SWRM_VERSION_1_3 0x01040000
+
 enum {
 	SWR_MSTR_PAUSE,
 	SWR_MSTR_RESUME,
@@ -89,6 +93,7 @@ struct swr_mstr_ctrl {
 	int (*reg_irq)(void *handle, irqreturn_t(*irq_handler)(int irq,
 			void *data), void *swr_handle, int type);
 	int irq;
+	int version;
 	int num_enum_slaves;
 	int slave_status;
 	struct swr_mstr_port *mstr_port;

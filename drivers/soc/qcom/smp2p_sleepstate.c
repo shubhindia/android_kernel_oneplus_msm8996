@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,14 +14,13 @@
 #include <linux/of_gpio.h>
 #include <linux/platform_device.h>
 #include <linux/suspend.h>
+#include <linux/delay.h>
+#include <linux/ipc_router.h>
 #include "smp2p_private.h"
 
 #define SET_DELAY (2 * HZ)
 #define PROC_AWAKE_ID 12 /* 12th bit */
-/*qiuchangping@BSP 2016-05-19
-  add for when sync filesystem take long time and AP hold sensor
-  sometime sensor data will block the sleep process alway*/
-int slst_gpio_base_id;
+static int slst_gpio_base_id;
 
 /**
  * sleepstate_pm_notifier() - PM notifier callback function.
@@ -37,17 +36,15 @@ static int sleepstate_pm_notifier(struct notifier_block *nb,
 {
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
-        /*qiuchangping@BSP 2016-05-19
-          add for when sync filesystem take long time and AP hold sensor
-          sometime sensor data will block the sleep process alway*/
-		/*gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 0);*/
+		gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 0);
+		msleep(25); /* To be tuned based on SMP2P latencies */
+		msm_ipc_router_set_ws_allowed(true);
 		break;
 
 	case PM_POST_SUSPEND:
-        /*qiuchangping@BSP 2016-05-19
-          add for when sync filesystem take long time and AP hold sensor
-          sometime sensor data will block the sleep process alway*/
-		/*gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 1);*/
+		gpio_set_value(slst_gpio_base_id + PROC_AWAKE_ID, 1);
+		msleep(25); /* To be tuned based on SMP2P latencies */
+		msm_ipc_router_set_ws_allowed(false);
 		break;
 	}
 	return NOTIFY_DONE;
@@ -55,6 +52,7 @@ static int sleepstate_pm_notifier(struct notifier_block *nb,
 
 static struct notifier_block sleepstate_pm_nb = {
 	.notifier_call = sleepstate_pm_notifier,
+	.priority = INT_MAX,
 };
 
 static int smp2p_sleepstate_probe(struct platform_device *pdev)
@@ -83,6 +81,7 @@ static int smp2p_sleepstate_probe(struct platform_device *pdev)
 
 static struct of_device_id msm_smp2p_slst_match_table[] = {
 	{.compatible = "qcom,smp2pgpio_sleepstate_3_out"},
+	{.compatible = "qcom,smp2pgpio-sleepstate-out"},
 	{},
 };
 

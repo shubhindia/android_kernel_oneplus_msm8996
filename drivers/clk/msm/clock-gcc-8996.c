@@ -31,7 +31,8 @@
 #include <dt-bindings/clock/msm-clocks-8996.h>
 #include <dt-bindings/clock/msm-clocks-hwio-8996.h>
 
-#include "vdd-level-8994.h"
+#include "reset.h"
+#include "vdd-level-8996.h"
 
 static void __iomem *virt_base;
 static void __iomem *virt_dbgbase;
@@ -41,7 +42,7 @@ static void __iomem *virt_dbgbase;
 #define gpll0_out_main_source_val 1
 #define gpll4_out_main_source_val 5
 
-#define FIXDIV(div) (div != 0 ? (2 * (div) - 1) : (0))
+#define FIXDIV(div) (div ? (2 * (div) - 1) : (0))
 
 #define F(f, s, div, m, n) \
 	{ \
@@ -86,7 +87,6 @@ static DEFINE_CLK_VOTER(bimc_msmbus_clk, &bimc_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(bimc_msmbus_a_clk, &bimc_a_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(cnoc_msmbus_clk, &cnoc_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(cnoc_msmbus_a_clk, &cnoc_a_clk.c, LONG_MAX);
-static DEFINE_CLK_VOTER(uart_cnoc_msmbus_a_clk, &cnoc_a_clk.c, LONG_MAX);
 static DEFINE_CLK_BRANCH_VOTER(cxo_dwc3_clk, &cxo_clk_src.c);
 static DEFINE_CLK_BRANCH_VOTER(cxo_lpm_clk, &cxo_clk_src.c);
 static DEFINE_CLK_BRANCH_VOTER(cxo_otg_clk, &cxo_clk_src.c);
@@ -127,7 +127,6 @@ DEFINE_CLK_RPM_SMD_XO_BUFFER_PINCTRL(rf_clk2_pin, rf_clk2_pin_ao,
 static DEFINE_CLK_VOTER(scm_ce1_clk, &ce1_clk.c, 85710000);
 static DEFINE_CLK_VOTER(snoc_msmbus_clk, &snoc_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(snoc_msmbus_a_clk, &snoc_a_clk.c, LONG_MAX);
-static DEFINE_CLK_VOTER(uart_snoc_msmbus_a_clk, &snoc_a_clk.c, LONG_MAX);
 
 static unsigned int soft_vote_gpll0;
 
@@ -1712,7 +1711,7 @@ static struct local_vote_clk gcc_blsp1_ahb_clk = {
 	.base = &virt_base,
 	.c = {
 		.dbg_name = "gcc_blsp1_ahb_clk",
-		.ops = &clk_ops_blsp1_ahb_vote,
+		.ops = &clk_ops_vote,
 		CLK_INIT(gcc_blsp1_ahb_clk.c),
 	},
 };
@@ -3148,6 +3147,26 @@ static struct branch_clk gcc_aggre0_noc_mpu_cfg_ahb_clk = {
 	},
 };
 
+static const struct msm_reset_map gcc_msm8996_resets[] = {
+	[QUSB2PHY_PRIM_BCR] = { 0x12038 },
+	[QUSB2PHY_SEC_BCR] = { 0x1203c },
+	[BLSP1_BCR] = { 0x17000 },
+	[BLSP2_BCR] = { 0x25000 },
+	[BOOT_ROM_BCR] = { 0x38000 },
+	[PRNG_BCR] = { 0x34000 },
+	[UFS_BCR] = { 0x75000 },
+	[USB_20_BCR] = { 0x12000 },
+	[USB_30_BCR] = { 0x0f000 },
+	[USB3_PHY_BCR] = { 0x50020 },
+	[USB3PHY_PHY_BCR] = { 0x50024 },
+	[PCIE_0_PHY_BCR] = { 0x6c01c },
+	[PCIE_1_PHY_BCR] = { 0x6d038 },
+	[PCIE_2_PHY_BCR] = { 0x6e038 },
+	[PCIE_PHY_BCR] = { 0x6f000 },
+	[PCIE_PHY_NOCSR_COM_PHY_BCR] = { 0x6f00C },
+	[PCIE_PHY_COM_BCR] = { 0x6f014 },
+};
+
 static struct mux_clk gcc_debug_mux;
 static struct mux_clk gcc_debug_mux_v2;
 static struct clk_ops clk_ops_debug_mux;
@@ -3356,7 +3375,6 @@ static struct clk_lookup msm_clocks_rpm_8996[] = {
 	CLK_LIST(ce1_a_clk),
 	CLK_LIST(cnoc_msmbus_clk),
 	CLK_LIST(cnoc_msmbus_a_clk),
-	CLK_LIST(uart_cnoc_msmbus_a_clk),
 	CLK_LIST(cxo_clk_src_ao),
 	CLK_LIST(cxo_dwc3_clk),
 	CLK_LIST(cxo_lpm_clk),
@@ -3397,7 +3415,6 @@ static struct clk_lookup msm_clocks_rpm_8996[] = {
 	CLK_LIST(scm_ce1_clk),
 	CLK_LIST(snoc_msmbus_clk),
 	CLK_LIST(snoc_msmbus_a_clk),
-	CLK_LIST(uart_snoc_msmbus_a_clk),
 	CLK_LIST(ce1_clk),
 	CLK_LIST(gcc_ce1_ahb_m_clk),
 	CLK_LIST(gcc_ce1_axi_m_clk),
@@ -3712,6 +3729,10 @@ static int msm_gcc_8996_probe(struct platform_device *pdev)
 	 * gcc_mmss_bimc_gfx_clk.
 	 */
 	clk_set_flags(&gcc_mmss_bimc_gfx_clk.c, CLKFLAG_RETAIN_MEM);
+
+	/* Register block resets */
+	msm_reset_controller_register(pdev, gcc_msm8996_resets,
+			ARRAY_SIZE(gcc_msm8996_resets), virt_base);
 
 	dev_info(&pdev->dev, "Registered GCC clocks.\n");
 	return 0;

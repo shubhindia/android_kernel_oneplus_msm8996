@@ -186,6 +186,7 @@ static void __cfg80211_clear_ibss(struct net_device *dev, bool nowext)
 	if (!nowext)
 		wdev->wext.ibss.ssid_len = 0;
 #endif
+	cfg80211_sched_dfs_chan_update(rdev);
 }
 
 void cfg80211_clear_ibss(struct net_device *dev, bool nowext)
@@ -533,7 +534,7 @@ int cfg80211_ibss_wext_giwap(struct net_device *dev,
 	else if (wdev->wext.ibss.bssid)
 		memcpy(ap_addr->sa_data, wdev->wext.ibss.bssid, ETH_ALEN);
 	else
-		memset(ap_addr->sa_data, 0, ETH_ALEN);
+		eth_zero_addr(ap_addr->sa_data);
 
 	wdev_unlock(wdev);
 

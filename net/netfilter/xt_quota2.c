@@ -97,7 +97,7 @@ static void quota2_log(const struct net_device *in,
 		       struct  xt_quota_counter *q,
 		       const char *prefix)
 {
-	if (prefix == NULL)
+	if (!prefix)
 		return;
 
 	strlcpy(q->last_prefix, prefix, QUOTA2_SYSFS_WORK_MAX_SIZE);

@@ -36,7 +36,6 @@
 #include <linux/hardirq.h>
 #include <linux/jiffies.h>
 #include <linux/workqueue.h>
-#include <linux/vmalloc.h>
 
 #include "internal.h"
 
@@ -238,6 +237,14 @@ static void allocate_buf_for_compression(void)
 
 }
 
+static void free_buf_for_compression(void)
+{
+	kfree(stream.workspace);
+	stream.workspace = NULL;
+	kfree(big_oops_buf);
+	big_oops_buf = NULL;
+}
+
 /*
  * Called when compression fails, since the printk buffer
  * would be fetched for compression calling it again when
@@ -362,6 +369,11 @@ static void pstore_register_kmsg(void)
 	kmsg_dump_register(&pstore_dumper);
 }
 
+static void pstore_unregister_kmsg(void)
+{
+	kmsg_dump_unregister(&pstore_dumper);
+}
+
 #ifdef CONFIG_PSTORE_CONSOLE
 static void pstore_console_write(struct console *con, const char *s, unsigned c)
 {
@@ -380,8 +392,8 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 		} else {
 			spin_lock_irqsave(&psinfo->buf_lock, flags);
 		}
-		memcpy(psinfo->buf, s, c);
-		psinfo->write(PSTORE_TYPE_CONSOLE, 0, &id, 0, 0, 0, c, psinfo);
+		psinfo->write_buf(PSTORE_TYPE_CONSOLE, 0, &id, 0,
+				  s, 0, c, psinfo);
 		spin_unlock_irqrestore(&psinfo->buf_lock, flags);
 		s += c;
 		c = e - s;
@@ -399,8 +411,14 @@ static void pstore_register_console(void)
 {
 	register_console(&pstore_console);
 }
+
+static void pstore_unregister_console(void)
+{
+	unregister_console(&pstore_console);
+}
 #else
 static void pstore_register_console(void) {}
+static void pstore_unregister_console(void) {}
 #endif
 
 static int pstore_write_compat(enum pstore_type_id type,
@@ -505,11 +523,27 @@ int pstore_register(struct pstore_info *psi)
 	 */
 	backend = psi->name;
 
+	module_put(owner);
+
 	pr_info("Registered %s as persistent store backend\n", psi->name);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(pstore_register);
+
+void pstore_unregister(struct pstore_info *psi)
+{
+	pstore_unregister_pmsg();
+	pstore_unregister_ftrace();
+	pstore_unregister_console();
+	pstore_unregister_kmsg();
+
+	free_buf_for_compression();
+
+	psinfo = NULL;
+	backend = NULL;
+}
+EXPORT_SYMBOL_GPL(pstore_unregister);
 
 /*
  * Read all the records from the persistent store. Create
@@ -546,7 +580,7 @@ void pstore_get_records(int quiet)
 							big_oops_buf_sz);
 
 			if (unzipped_len > 0) {
-				vfree(buf);
+				kfree(buf);
 				buf = big_oops_buf;
 				size = unzipped_len;
 				compressed = false;
@@ -560,7 +594,7 @@ void pstore_get_records(int quiet)
 				  compressed, (size_t)size, time, psi);
 		if (unzipped_len < 0) {
 			/* Free buffer other than big oops */
-			vfree(buf);
+			kfree(buf);
 			buf = NULL;
 		} else
 			unzipped_len = -1;

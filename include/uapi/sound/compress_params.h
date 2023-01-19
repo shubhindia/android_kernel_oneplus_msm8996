@@ -404,10 +404,6 @@ struct snd_dec_aptx {
 	__u32 nap;
 };
 
-struct snd_dec_amrwb_plus {
-	__u32 bit_stream_fmt;
-};
-
 union snd_codec_options {
 	struct snd_enc_wma wma;
 	struct snd_enc_vorbis vorbis;
@@ -420,8 +416,7 @@ union snd_codec_options {
 	struct snd_dec_alac alac;
 	struct snd_dec_ape ape;
 	struct snd_dec_aptx aptx_dec;
-	struct snd_dec_amrwb_plus amrwbplus;
-} __attribute__((packed, aligned(4)));
+};
 
 /** struct snd_codec_desc - description of codec capabilities
  * @max_ch: Maximum number of audio channels
@@ -503,6 +498,15 @@ struct snd_codec {
 	__u32 reserved[2];
 } __attribute__((packed, aligned(4)));
 
+
+/** struct snd_codec_metadata
+ * @length: Length of the encoded buffer.
+ * @offset: Offset from the buffer address to the first byte of the first
+ *		encoded frame. All encoded frames are consecutive starting
+ *		from this offset.
+ * @timestamp: Session time in microseconds of the first sample in the buffer.
+ * @reserved: Reserved for future use.
+ */
 struct snd_codec_metadata {
 	__u32 length;
 	__u32 offset;

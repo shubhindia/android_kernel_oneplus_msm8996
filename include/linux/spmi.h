@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -138,9 +138,6 @@ void spmi_controller_remove(struct spmi_controller *ctrl);
  *		this structure.
  * @probe:	binds this driver to a SPMI device.
  * @remove:	unbinds this driver from the SPMI device.
- * @shutdown:	standard shutdown callback used during powerdown/halt.
- * @suspend:	standard suspend callback used during system suspend.
- * @resume:	standard resume callback used during system resume.
  *
  * If PM runtime support is desired for a slave, a device driver can call
  * pm_runtime_put() from their probe() routine (and a balancing
@@ -160,7 +157,9 @@ static inline struct spmi_driver *to_spmi_driver(struct device_driver *d)
 	return container_of(d, struct spmi_driver, driver);
 }
 
-int spmi_driver_register(struct spmi_driver *sdrv);
+#define spmi_driver_register(sdrv) \
+	__spmi_driver_register(sdrv, THIS_MODULE)
+int __spmi_driver_register(struct spmi_driver *sdrv, struct module *owner);
 
 /**
  * spmi_driver_unregister() - unregister an SPMI client driver
@@ -175,6 +174,19 @@ static inline void spmi_driver_unregister(struct spmi_driver *sdrv)
 #define module_spmi_driver(__spmi_driver) \
 	module_driver(__spmi_driver, spmi_driver_register, \
 			spmi_driver_unregister)
+
+#ifdef CONFIG_QCOM_SHOW_RESUME_IRQ
+extern int msm_show_resume_irq_mask;
+static inline bool spmi_show_resume_irq(void)
+{
+	return msm_show_resume_irq_mask;
+}
+#else
+static inline bool spmi_show_resume_irq(void)
+{
+	return false;
+}
+#endif
 
 int spmi_register_read(struct spmi_device *sdev, u8 addr, u8 *buf);
 int spmi_ext_register_read(struct spmi_device *sdev, u8 addr, u8 *buf,

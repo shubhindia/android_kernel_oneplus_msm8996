@@ -154,7 +154,7 @@ static int rpm_stats_write_buf(struct seq_file *m)
 		time = get_time_in_msec(time);
 		seq_printf(m, "\ttime in last mode(msec):%llu\n", time);
 
-		time = arch_counter_get_cntpct() - rs.last_exited_at;
+		time = arch_counter_get_cntvct() - rs.last_exited_at;
 		time = get_time_in_sec(time);
 		seq_printf(m, "\ttime since last mode(sec):%llu\n", time);
 
@@ -377,8 +377,8 @@ static int msm_rpmstats_probe(struct platform_device *pdev)
 			pr_err("%s:Failed to get memory\n", __func__);
 			return -ENOMEM;
 		}
-		strscpy(ss.master[i], master_name,
-					sizeof(ss.master[i]));
+		strlcpy(ss.master[i], master_name,
+					strlen(master_name) + 1);
 	}
 
 	dent = debugfs_create_file("system_stats", S_IRUGO, NULL,
@@ -403,7 +403,7 @@ static int msm_rpmstats_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct of_device_id rpm_stats_table[] = {
+static const struct of_device_id rpm_stats_table[] = {
 	       {.compatible = "qcom,system-stats"},
 	       {},
 };

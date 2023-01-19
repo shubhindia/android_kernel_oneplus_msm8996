@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -17,8 +17,6 @@
 #include "msm_sd.h"
 #include "msm_cci.h"
 #include "msm_eeprom.h"
-
-#include <linux/proc_fs.h>
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
@@ -564,6 +562,7 @@ static int eeprom_init_config(struct msm_eeprom_ctrl_t *e_ctrl,
 	rc = eeprom_parse_memory_map(e_ctrl, memory_map_arr);
 	if (rc < 0) {
 		pr_err("%s::%d memory map parse failed\n", __func__, __LINE__);
+		goto free_mem;
 	}
 
 	rc = msm_camera_power_down(power_info, e_ctrl->eeprom_device_type,
@@ -571,6 +570,7 @@ static int eeprom_init_config(struct msm_eeprom_ctrl_t *e_ctrl,
 	if (rc < 0) {
 		pr_err("%s:%d Power down failed rc %d\n",
 			__func__, __LINE__, rc);
+		goto free_mem;
 	}
 
 free_mem:
@@ -1270,9 +1270,10 @@ static int msm_eeprom_spi_remove(struct spi_device *sdev)
 	}
 
 	if (!e_ctrl->eboard_info) {
-		pr_err("%s: eboard_info is NULL\n", __func__);
+		pr_err("%s: board info is NULL\n", __func__);
 		return 0;
 	}
+
 	msm_camera_i2c_dev_put_clk_info(
 		&e_ctrl->i2c_client.spi_client->spi_master->dev,
 		&e_ctrl->eboard_info->power_info.clk_info,
@@ -1291,92 +1292,6 @@ static int msm_eeprom_spi_remove(struct spi_device *sdev)
 	e_ctrl = NULL;
 
 	return 0;
-}
-
-uint16_t imx298_lsc_info = 1; //cn
-extern bool pdaf_calibration_flag;
-static void msm_eeprom_imx298_read_vendorInfo(struct msm_eeprom_ctrl_t *e_ctrl)
-{
-	int rc = 0;
-	uint16_t read_data = 0;
-
-	e_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
-
-	rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
-					&e_ctrl->i2c_client, 0x0700,
-					&read_data, MSM_CAMERA_I2C_BYTE_DATA);
-	if (rc < 0) {
-		pr_err("%s read 0x0700 failed\n", __func__);
-	} else {
-		pr_err("%s read 0x0700=%d\n", __func__,read_data);
-	}
-	//read PDAF calibration
-	if (read_data == 0x01) {
-		 pdaf_calibration_flag = true;
-		 pr_err("%s pdaf calibration is valid\n", __func__);
-	} else {
-		 pdaf_calibration_flag = false;
-		 pr_err("%s pdaf calibration is NOT valid\n", __func__);
-	}
-}
-
-/*chenneng@camera, 20151123, add for pdaf engineer mode*/
-static ssize_t imx298_eeprom_proc_read(struct file *filp, char __user *buff,
-												   size_t len, loff_t *data)
-{
-	char value[2] = {0};
-
-	snprintf(value, sizeof(value), "%d", imx298_lsc_info);
-
-	pr_err("%s,lsc_info=%d,value=%s\n", __func__,imx298_lsc_info,value);
-	return simple_read_from_buffer(buff, len, data, value,1);
-}
-
-static const struct file_operations imx298_eeprom_test_fops = {
-	.owner		= THIS_MODULE,
-	.read		= imx298_eeprom_proc_read,
-	//.write		= imx298_eeprom_proc_write,
-};
-
-static int msm_eeprom_proc_init(void)
-{
-	int ret=0;
-	struct proc_dir_entry *proc_entry;
-
-	proc_entry = proc_create_data("imx298_eeprom_info", 0666, NULL, &imx298_eeprom_test_fops, NULL);
-	if (proc_entry == NULL)
-	{
-		ret = -ENOMEM;
-		pr_err("[%s]: Error! Couldn't create imx298_eeprom_info proc entry\n", __func__);
-	}
-	return ret;
-}
-
-/*niqiangbo@camera, 20160818, add for distinguish s5k3p8 and s5k3p8sp */
-extern bool is_3p8sp;
-static void msm_eeprom_s5k3p8sp_read_sensorInfo(struct msm_eeprom_ctrl_t *e_ctrl)
-{
-	int rc = 0;
-	uint16_t read_data = 0;
-
-	e_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
-
-	rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
-					&e_ctrl->i2c_client, 0x0006,
-					&read_data, MSM_CAMERA_I2C_BYTE_DATA);
-	if (rc < 0) {
-		pr_err("%s read eeprom.sensor_id failed\n", __func__);
-	} else {
-		pr_err("%s read eeprom.sensor_id = 0x%x\n", __func__,read_data);
-	}
-	//read eeprom sensor_id
-	if (read_data == 0x3B) {
-		 is_3p8sp = true;
-		 //pr_err("%s current sensor is s5k3p8sp\n", __func__);
-	} else {
-		 is_3p8sp = false;
-		 //pr_err("%s current sensor is s5k3p8\n", __func__);
-	}
 }
 
 #ifdef CONFIG_COMPAT
@@ -1804,15 +1719,6 @@ static int msm_eeprom_platform_probe(struct platform_device *pdev)
 			pr_err("failed rc %d\n", rc);
 			goto memdata_free;
 		}
-
-		if (strcmp(eb_info->eeprom_name, "sony_imx298") == 0) {
-			msm_eeprom_imx298_read_vendorInfo(e_ctrl);
-			msm_eeprom_proc_init();
-		}
-		if (strcmp(eb_info->eeprom_name, "s5k3p8sp_m24c64s") == 0) {
-			msm_eeprom_s5k3p8sp_read_sensorInfo(e_ctrl);
-		}
-
 		rc = read_eeprom_memory(e_ctrl, &e_ctrl->cal_data);
 		if (rc < 0) {
 			pr_err("%s read_eeprom_memory failed\n", __func__);
@@ -1888,9 +1794,10 @@ static int msm_eeprom_platform_remove(struct platform_device *pdev)
 	}
 
 	if (!e_ctrl->eboard_info) {
-		pr_err("%s: eboard_info is NULL\n", __func__);
+		pr_err("%s: board info is NULL\n", __func__);
 		return 0;
 	}
+
 	msm_camera_put_clk_info(e_ctrl->pdev,
 		&e_ctrl->eboard_info->power_info.clk_info,
 		&e_ctrl->eboard_info->power_info.clk_ptr,

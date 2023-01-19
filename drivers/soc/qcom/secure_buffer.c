@@ -52,7 +52,7 @@ struct mem_prot_info {
 struct dest_vm_and_perm_info {
 	u32 vm;
 	u32 perm;
-	u32 *ctx;
+	u64 ctx;
 	u32 ctx_size;
 };
 
@@ -210,7 +210,7 @@ populate_dest_info(int *dest_vmids, int nelements, int *dest_perms,
 	for (i = 0; i < nelements; i++) {
 		dest_info[i].vm = dest_vmids[i];
 		dest_info[i].perm = dest_perms[i];
-		dest_info[i].ctx = NULL;
+		dest_info[i].ctx = 0x0;
 		dest_info[i].ctx_size = 0;
 	}
 
@@ -286,7 +286,7 @@ int hyp_assign_table(struct sg_table *table,
 			int *dest_vmids, int *dest_perms,
 			int dest_nelems)
 {
-	int ret;
+	int ret = 0;
 	struct scm_desc desc = {0};
 	u32 *source_vm_copy;
 	size_t source_vm_copy_size;
@@ -360,6 +360,7 @@ int hyp_assign_phys(phys_addr_t addr, u64 size, u32 *source_vm_list,
 	sg_free_table(&table);
 	return ret;
 }
+EXPORT_SYMBOL(hyp_assign_phys);
 
 const char *msm_secure_vmid_to_string(int secure_vmid)
 {
@@ -390,6 +391,10 @@ const char *msm_secure_vmid_to_string(int secure_vmid)
 		return "VMID_WLAN";
 	case VMID_WLAN_CE:
 		return "VMID_WLAN_CE";
+	case VMID_CP_CAMERA_PREVIEW:
+		return "VMID_CP_CAMERA_PREVIEW";
+	case VMID_CP_SPSS_SP_SHARED:
+		return "VMID_CP_SPSS_SP_SHARED";
 	case VMID_INVAL:
 		return "VMID_INVAL";
 	default:
@@ -402,11 +407,12 @@ const char *msm_secure_vmid_to_string(int secure_vmid)
 
 bool msm_secure_v2_is_supported(void)
 {
-	int version = scm_get_feat_version(FEATURE_ID_CP);
+	u64 version;
+	int ret = scm_get_feat_version(FEATURE_ID_CP, &version);
 
 	/*
 	 * if the version is < 1.1.0 then dynamic buffer allocation is
 	 * not supported
 	 */
-	return version >= MAKE_CP_VERSION(1, 1, 0);
+	return (ret == 0) && (version >= MAKE_CP_VERSION(1, 1, 0));
 }

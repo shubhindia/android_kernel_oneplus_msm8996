@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2016, 2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -66,7 +66,7 @@
 #define DIAG_IOCTL_PERIPHERAL_BUF_DRAIN		36
 #define DIAG_IOCTL_REGISTER_CALLBACK	37
 #define DIAG_IOCTL_HDLC_TOGGLE	38
-#define DIAG_IOCTL_QUERY_CON_ALL	40
+#define DIAG_IOCTL_QUERY_PD_LOGGING	39
 
 /* PC Tools IDs */
 #define APQ8060_TOOLS_ID	4062
@@ -520,7 +520,7 @@ static const uint32_t msg_bld_masks_7[] = {
 	MSG_LVL_LOW,
 	MSG_LVL_LOW,
 	MSG_LVL_LOW,
-	MSG_LVL_LOW|MSG_LVL_MED|MSG_LVL_HIGH|MSG_LVL_ERROR|
+	MSG_LVL_LOW | MSG_LVL_MED | MSG_LVL_HIGH | MSG_LVL_ERROR |
 	MSG_LVL_FATAL,
 	MSG_LVL_LOW
 };

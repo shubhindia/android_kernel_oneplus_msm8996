@@ -67,12 +67,13 @@ int32_t msm_camera_cci_i2c_read_seq(struct msm_camera_i2c_client *client,
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
 		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR
-		&& client->addr_type != MSM_CAMERA_I2C_3B_ADDR)
+		&& client->addr_type != MSM_CAMERA_I2C_3B_ADDR
+		&& client->addr_type != MSM_CAMERA_I2C_DWORD_ADDR)
 		|| num_byte == 0)
 		return rc;
 
 	if (num_byte > I2C_REG_DATA_MAX) {
-		S_I2C_DBG("%s: Error num_byte:0x%x exceeds 8K max supported:0x%x\n",
+		S_I2C_DBG("%s: Error num_byte:0x%x exceeds max:0x%x\n",
 		__func__, num_byte, I2C_REG_DATA_MAX);
 		return rc;
 	}

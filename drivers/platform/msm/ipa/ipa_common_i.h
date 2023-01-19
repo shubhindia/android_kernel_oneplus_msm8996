@@ -18,7 +18,6 @@
 #include <linux/ipc_logging.h>
 #include <linux/ipa.h>
 #include <linux/ipa_uc_offload.h>
-#include <linux/ipa_wdi3.h>
 #include <linux/ratelimit.h>
 
 #define WARNON_RATELIMIT_BURST 1
@@ -412,20 +411,16 @@ int ipa_setup_uc_ntn_pipes(struct ipa_ntn_conn_in_params *in,
 	struct ipa_ntn_conn_out_params *outp);
 
 int ipa_tear_down_uc_offload_pipes(int ipa_ep_idx_ul, int ipa_ep_idx_dl);
+
+u8 *ipa_write_64(u64 w, u8 *dest);
+u8 *ipa_write_32(u32 w, u8 *dest);
+u8 *ipa_write_16(u16 hw, u8 *dest);
+u8 *ipa_write_8(u8 b, u8 *dest);
+u8 *ipa_pad_to_64(u8 *dest);
+u8 *ipa_pad_to_32(u8 *dest);
 int ipa_ntn_uc_reg_rdyCB(void (*ipauc_ready_cb)(void *user_data),
 			      void *user_data);
 void ipa_ntn_uc_dereg_rdyCB(void);
-
-int ipa_conn_wdi3_pipes(struct ipa_wdi3_conn_in_params *in,
-	struct ipa_wdi3_conn_out_params *out);
-
-int ipa_disconn_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
-
-int ipa_enable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
-
-int ipa_disable_wdi3_pipes(int ipa_ep_idx_tx, int ipa_ep_idx_rx);
-
 const char *ipa_get_version_string(enum ipa_hw_type ver);
-int ipa_start_gsi_channel(u32 clnt_hdl);
 
 #endif /* _IPA_COMMON_I_H_ */

@@ -1118,34 +1118,30 @@ static int netlbl_unlabel_staticlist_gen(u32 cmd,
 		struct in_addr addr_struct;
 
 		addr_struct.s_addr = addr4->list.addr;
-		ret_val = nla_put(cb_arg->skb,
-				  NLBL_UNLABEL_A_IPV4ADDR,
-				  sizeof(struct in_addr),
-				  &addr_struct);
+		ret_val = nla_put_in_addr(cb_arg->skb,
+					  NLBL_UNLABEL_A_IPV4ADDR,
+					  addr_struct.s_addr);
 		if (ret_val != 0)
 			goto list_cb_failure;
 
 		addr_struct.s_addr = addr4->list.mask;
-		ret_val = nla_put(cb_arg->skb,
-				  NLBL_UNLABEL_A_IPV4MASK,
-				  sizeof(struct in_addr),
-				  &addr_struct);
+		ret_val = nla_put_in_addr(cb_arg->skb,
+					  NLBL_UNLABEL_A_IPV4MASK,
+					  addr_struct.s_addr);
 		if (ret_val != 0)
 			goto list_cb_failure;
 
 		secid = addr4->secid;
 	} else {
-		ret_val = nla_put(cb_arg->skb,
-				  NLBL_UNLABEL_A_IPV6ADDR,
-				  sizeof(struct in6_addr),
-				  &addr6->list.addr);
+		ret_val = nla_put_in6_addr(cb_arg->skb,
+					   NLBL_UNLABEL_A_IPV6ADDR,
+					   &addr6->list.addr);
 		if (ret_val != 0)
 			goto list_cb_failure;
 
-		ret_val = nla_put(cb_arg->skb,
-				  NLBL_UNLABEL_A_IPV6MASK,
-				  sizeof(struct in6_addr),
-				  &addr6->list.mask);
+		ret_val = nla_put_in6_addr(cb_arg->skb,
+					   NLBL_UNLABEL_A_IPV6MASK,
+					   &addr6->list.mask);
 		if (ret_val != 0)
 			goto list_cb_failure;
 
@@ -1164,7 +1160,8 @@ static int netlbl_unlabel_staticlist_gen(u32 cmd,
 		goto list_cb_failure;
 
 	cb_arg->seq++;
-	return genlmsg_end(cb_arg->skb, data);
+	genlmsg_end(cb_arg->skb, data);
+	return 0;
 
 list_cb_failure:
 	genlmsg_cancel(cb_arg->skb, data);
@@ -1188,12 +1185,13 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 	struct netlbl_unlhsh_walk_arg cb_arg;
 	u32 skip_bkt = cb->args[0];
 	u32 skip_chain = cb->args[1];
-	u32 iter_bkt;
-	u32 iter_chain = 0, iter_addr4 = 0, iter_addr6 = 0;
+	u32 skip_addr4 = cb->args[2];
+	u32 iter_bkt, iter_chain = 0, iter_addr4 = 0, iter_addr6 = 0;
 	struct netlbl_unlhsh_iface *iface;
 	struct list_head *iter_list;
 	struct netlbl_af4list *addr4;
 #if IS_ENABLED(CONFIG_IPV6)
+	u32 skip_addr6 = cb->args[3];
 	struct netlbl_af6list *addr6;
 #endif
 
@@ -1204,7 +1202,7 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 	rcu_read_lock();
 	for (iter_bkt = skip_bkt;
 	     iter_bkt < rcu_dereference(netlbl_unlhsh)->size;
-	     iter_bkt++, iter_chain = 0, iter_addr4 = 0, iter_addr6 = 0) {
+	     iter_bkt++) {
 		iter_list = &rcu_dereference(netlbl_unlhsh)->tbl[iter_bkt];
 		list_for_each_entry_rcu(iface, iter_list, list) {
 			if (!iface->valid ||
@@ -1212,7 +1210,7 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 				continue;
 			netlbl_af4list_foreach_rcu(addr4,
 						   &iface->addr4_list) {
-				if (iter_addr4++ < cb->args[2])
+				if (iter_addr4++ < skip_addr4)
 					continue;
 				if (netlbl_unlabel_staticlist_gen(
 					      NLBL_UNLABEL_C_STATICLIST,
@@ -1225,10 +1223,12 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 					goto unlabel_staticlist_return;
 				}
 			}
+			iter_addr4 = 0;
+			skip_addr4 = 0;
 #if IS_ENABLED(CONFIG_IPV6)
 			netlbl_af6list_foreach_rcu(addr6,
 						   &iface->addr6_list) {
-				if (iter_addr6++ < cb->args[3])
+				if (iter_addr6++ < skip_addr6)
 					continue;
 				if (netlbl_unlabel_staticlist_gen(
 					      NLBL_UNLABEL_C_STATICLIST,
@@ -1241,8 +1241,12 @@ static int netlbl_unlabel_staticlist(struct sk_buff *skb,
 					goto unlabel_staticlist_return;
 				}
 			}
+			iter_addr6 = 0;
+			skip_addr6 = 0;
 #endif /* IPv6 */
 		}
+		iter_chain = 0;
+		skip_chain = 0;
 	}
 
 unlabel_staticlist_return:

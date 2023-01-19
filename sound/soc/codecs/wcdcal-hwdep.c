@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -11,6 +11,8 @@
  * GNU General Public License for more details.
  *
  */
+#include <linux/kernel.h>
+#include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/ioctl.h>
 #include <linux/bitops.h>
@@ -24,8 +26,6 @@ const int cal_size_info[WCD9XXX_MAX_CAL] = {
 	[WCD9XXX_MBHC_CAL] = 4096,
 	[WCD9XXX_MAD_CAL] = 4096,
 	[WCD9XXX_VBAT_CAL] = 72,
-	[BG_CODEC_MIC_CAL] = 20,
-	[BG_CODEC_SPEAKER_CAL] = 3077,
 };
 
 const char *cal_name_info[WCD9XXX_MAX_CAL] = {
@@ -33,8 +33,6 @@ const char *cal_name_info[WCD9XXX_MAX_CAL] = {
 	[WCD9XXX_MBHC_CAL] = "mbhc",
 	[WCD9XXX_MAD_CAL] = "mad",
 	[WCD9XXX_VBAT_CAL] = "vbat",
-	[BG_CODEC_MIC_CAL] = "bgmic",
-	[BG_CODEC_SPEAKER_CAL] = "bgspk",
 };
 
 struct firmware_cal *wcdcal_get_fw_cal(struct fw_info *fw_data,

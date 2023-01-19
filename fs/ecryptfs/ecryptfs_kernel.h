@@ -89,7 +89,7 @@ ecryptfs_get_encrypted_key_payload_data(struct key *key)
 	if (key->type != &key_type_encrypted)
 		return NULL;
 
-	payload = key->payload.data;
+	payload = key->payload.data[0];
 	if (!payload)
 		return ERR_PTR(-EKEYREVOKED);
 
@@ -119,13 +119,13 @@ static inline struct ecryptfs_auth_tok *
 ecryptfs_get_key_payload_data(struct key *key)
 {
 	struct ecryptfs_auth_tok *auth_tok;
-	struct user_key_payload *ukp;
+	const struct user_key_payload *ukp;
 
 	auth_tok = ecryptfs_get_encrypted_key_payload_data(key);
 	if (auth_tok)
 		return auth_tok;
 
-	ukp = key->payload.data;
+	ukp = user_key_payload(key);
 	if (!ukp)
 		return ERR_PTR(-EKEYREVOKED);
 
@@ -133,7 +133,7 @@ ecryptfs_get_key_payload_data(struct key *key)
 }
 
 #define ECRYPTFS_MAX_KEYSET_SIZE 1024
-#define ECRYPTFS_MAX_CIPHER_NAME_SIZE 32
+#define ECRYPTFS_MAX_CIPHER_NAME_SIZE 31
 #define ECRYPTFS_MAX_NUM_ENC_KEYS 64
 #define ECRYPTFS_MAX_IV_BYTES 16	/* 128 bits */
 #define ECRYPTFS_SALT_BYTES 2

@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2014, 2016-2017 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014,2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,10 +14,9 @@
 #include <linux/module.h>
 #include <linux/err.h>
 #include <linux/slab.h>
-#include <linux/spmi.h>
+#include <linux/regmap.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/notifier.h>
 #include <linux/qpnp-misc.h>
 
 #define QPNP_MISC_DEV_NAME "qcom,qpnp-misc"
@@ -30,20 +29,8 @@
 #define PWM_SEL_MAX		0x03
 #define GP_DRIVER_EN_BIT	BIT(0)
 
-enum twm {
-	TWM_MODE_1 = 1,
-	TWM_MODE_2,
-	TWM_MODE_3,
-};
-
-enum twm_attrib {
-	TWM_ENABLE,
-	TWM_EXIT,
-};
-
 static DEFINE_MUTEX(qpnp_misc_dev_list_mutex);
 static LIST_HEAD(qpnp_misc_dev_list);
-static RAW_NOTIFIER_HEAD(twm_notifier);
 
 struct qpnp_misc_version {
 	u8	subtype;
@@ -58,8 +45,7 @@ struct qpnp_misc_version {
  *				exclusion between probing and accessing misc
  *				driver information
  * @dev:			Device pointer to the misc device
- * @resource:			Resource pointer that holds base address
- * @spmi:			Spmi pointer which holds spmi information
+ * @regmap:			Regmap pointer to the misc device
  * @version:			struct that holds the subtype and dig_major_rev
  *				of the chip.
  */
@@ -67,16 +53,12 @@ struct qpnp_misc_dev {
 	struct list_head		list;
 	struct mutex			mutex;
 	struct device			*dev;
-	struct resource			*resource;
-	struct spmi_device		*spmi;
+	struct regmap			*regmap;
 	struct qpnp_misc_version	version;
-	struct class			twm_class;
 
-	u8				twm_mode;
+	u32				base;
 	u8				pwm_sel;
 	bool				enable_gp_driver;
-	bool				support_twm_config;
-	bool				twm_enable;
 };
 
 static struct of_device_id qpnp_misc_match_table[] = {
@@ -89,7 +71,7 @@ enum qpnp_misc_version_name {
 	PM8941,
 	PM8226,
 	PMA8084,
-	PMD9650,
+	PMDCALIFORNIUM,
 };
 
 static struct qpnp_misc_version irq_support_version[] = {
@@ -97,29 +79,32 @@ static struct qpnp_misc_version irq_support_version[] = {
 	{0x01, 0x02}, /* PM8941 */
 	{0x07, 0x00}, /* PM8226 */
 	{0x09, 0x00}, /* PMA8084 */
-	{0x16, 0x00}, /* PMD9650 */
+	{0x16, 0x00}, /* PMDCALIFORNIUM */
 };
 
-static int qpnp_write_byte(struct spmi_device *spmi, u16 addr, u8 val)
+static int qpnp_write_byte(struct qpnp_misc_dev *mdev, u16 addr, u8 val)
 {
 	int rc;
 
-	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid, addr, &val, 1);
+	rc = regmap_write(mdev->regmap, mdev->base + addr, val);
 	if (rc)
-		pr_err("SPMI write failed rc=%d\n", rc);
+		pr_err("regmap write failed rc=%d\n", rc);
 
 	return rc;
 }
 
-static int qpnp_read_byte(struct spmi_device *spmi, u16 addr, u8 *val)
+static int qpnp_read_byte(struct qpnp_misc_dev *mdev, u16 addr, u8 *val)
 {
+	unsigned int temp;
 	int rc;
 
-	rc = spmi_ext_register_readl(spmi->ctrl, spmi->sid, addr, val, 1);
+	rc = regmap_read(mdev->regmap, mdev->base + addr, &temp);
 	if (rc) {
-		pr_err("SPMI read failed rc=%d\n", rc);
+		pr_err("regmap read failed rc=%d\n", rc);
 		return rc;
 	}
+
+	*val = (u8)temp;
 	return rc;
 }
 
@@ -176,7 +161,7 @@ int qpnp_misc_read_reg(struct device_node *node, u16 addr, u8 *val)
 		return -EPROBE_DEFER;
 	}
 
-	rc = qpnp_read_byte(mdev->spmi, addr, &temp);
+	rc = qpnp_read_byte(mdev, addr, &temp);
 	if (rc < 0) {
 		dev_err(mdev->dev, "Failed to read addr %x, rc=%d\n", addr, rc);
 		return rc;
@@ -224,108 +209,26 @@ int qpnp_misc_irqs_available(struct device *consumer_dev)
 	return __misc_irqs_available(mdev_found);
 }
 
-#define MISC_SPARE_1		0x50
-#define MISC_SPARE_2		0x51
-#define ENABLE_TWM_MODE		0x80
-#define DISABLE_TWM_MODE	0x0
-#define TWM_EXIT_BIT		BIT(0)
-static ssize_t twm_enable_store(struct class *c,
-			struct class_attribute *attr,
-			const char *buf, size_t count)
-{
-	struct qpnp_misc_dev *mdev = container_of(c,
-			struct qpnp_misc_dev, twm_class);
-	u8 val = 0;
-	ssize_t rc = 0;
-
-	rc = kstrtou8(buf, 10, &val);
-	if (rc < 0)
-		return rc;
-
-	mdev->twm_enable = val ? true : false;
-
-	/* Notify the TWM state */
-	raw_notifier_call_chain(&twm_notifier,
-		mdev->twm_enable ? PMIC_TWM_ENABLE : PMIC_TWM_CLEAR, NULL);
-
-	return count;
-}
-
-static ssize_t twm_enable_show(struct class *c,
-			struct class_attribute *attr, char *buf)
-{
-	struct qpnp_misc_dev *mdev = container_of(c,
-			struct qpnp_misc_dev, twm_class);
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", mdev->twm_enable);
-}
-
-static ssize_t twm_exit_show(struct class *c,
-			struct class_attribute *attr, char *buf)
-{
-	struct qpnp_misc_dev *mdev = container_of(c,
-			struct qpnp_misc_dev, twm_class);
-	ssize_t rc = 0;
-	u8 val = 0;
-
-	rc = qpnp_read_byte(mdev->spmi,
-			mdev->resource->start + MISC_SPARE_1, &val);
-	if (rc < 0) {
-		pr_err("Failed to read TWM enable (misc_spare_1) rc=%d\n", rc);
-		return rc;
-	}
-
-	pr_debug("TWM_EXIT (misc_spare_1) register = 0x%02x\n", val);
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", !!(val & TWM_EXIT_BIT));
-}
-
-static struct class_attribute twm_attributes[] = {
-	[TWM_ENABLE]		= __ATTR(twm_enable, S_IRUGO | S_IWUSR,
-					twm_enable_show, twm_enable_store),
-	[TWM_EXIT]		= __ATTR(twm_exit, S_IRUGO | S_IWUSR,
-					twm_exit_show, NULL),
-	__ATTR_NULL,
-};
-
-int qpnp_misc_twm_notifier_register(struct notifier_block *nb)
-{
-	return raw_notifier_chain_register(&twm_notifier, nb);
-}
-EXPORT_SYMBOL(qpnp_misc_twm_notifier_register);
-
-int qpnp_misc_twm_notifier_unregister(struct notifier_block *nb)
-{
-	return raw_notifier_chain_unregister(&twm_notifier, nb);
-}
-EXPORT_SYMBOL(qpnp_misc_twm_notifier_unregister);
-
 static int qpnp_misc_dt_init(struct qpnp_misc_dev *mdev)
 {
+	struct device_node *node = mdev->dev->of_node;
 	u32 val;
 	int rc;
 
-	if (of_property_read_bool(mdev->dev->of_node,
-				"qcom,support-twm-config")) {
-		mdev->support_twm_config = true;
-		mdev->twm_mode = TWM_MODE_3;
-		rc = of_property_read_u8(mdev->dev->of_node, "qcom,twm-mode",
-							&mdev->twm_mode);
-		if (!rc && (mdev->twm_mode < TWM_MODE_1 ||
-				mdev->twm_mode > TWM_MODE_3)) {
-			pr_err("Invalid TWM mode %d\n", mdev->twm_mode);
-			return -EINVAL;
-		}
+	rc = of_property_read_u32(node, "reg", &mdev->base);
+	if (rc < 0 || !mdev->base) {
+		dev_err(mdev->dev, "Base address not defined or invalid\n");
+		return -EINVAL;
 	}
 
-	if (!of_property_read_u32(mdev->dev->of_node, "qcom,pwm-sel", &val)) {
+	if (!of_property_read_u32(node, "qcom,pwm-sel", &val)) {
 		if (val > PWM_SEL_MAX) {
 			dev_err(mdev->dev, "Invalid value for pwm-sel\n");
 			return -EINVAL;
 		}
 		mdev->pwm_sel = (u8)val;
 	}
-	mdev->enable_gp_driver = of_property_read_bool(mdev->dev->of_node,
+	mdev->enable_gp_driver = of_property_read_bool(node,
 						"qcom,enable-gp-driver");
 
 	WARN((mdev->pwm_sel > 0 && !mdev->enable_gp_driver),
@@ -343,20 +246,17 @@ static int qpnp_misc_config(struct qpnp_misc_dev *mdev)
 	version_name = get_qpnp_misc_version_name(mdev);
 
 	switch (version_name) {
-	case PMD9650:
+	case PMDCALIFORNIUM:
 		if (mdev->pwm_sel > 0 && mdev->enable_gp_driver) {
-			rc = qpnp_write_byte(mdev->spmi,
-				mdev->resource->start + REG_PWM_SEL,
-				mdev->pwm_sel);
+			rc = qpnp_write_byte(mdev, REG_PWM_SEL, mdev->pwm_sel);
 			if (rc < 0) {
 				dev_err(mdev->dev,
 					"Failed to write PWM_SEL reg\n");
 				return rc;
 			}
 
-			rc = qpnp_write_byte(mdev->spmi,
-				mdev->resource->start + REG_GP_DRIVER_EN,
-				GP_DRIVER_EN_BIT);
+			rc = qpnp_write_byte(mdev, REG_GP_DRIVER_EN,
+					GP_DRIVER_EN_BIT);
 			if (rc < 0) {
 				dev_err(mdev->dev,
 					"Failed to write GP_DRIVER_EN reg\n");
@@ -368,51 +268,41 @@ static int qpnp_misc_config(struct qpnp_misc_dev *mdev)
 		break;
 	}
 
-	if (mdev->support_twm_config) {
-		mdev->twm_class.name = "pmic_twm",
-		mdev->twm_class.owner = THIS_MODULE,
-		mdev->twm_class.class_attrs = twm_attributes;
-
-		rc = class_register(&mdev->twm_class);
-		if (rc < 0) {
-			pr_err("Failed to register pmic_twm class rc=%d\n", rc);
-			return rc;
-		}
-	}
-
 	return 0;
 }
 
-static int qpnp_misc_probe(struct spmi_device *spmi)
+static int qpnp_misc_probe(struct platform_device *pdev)
 {
-	struct resource *resource;
 	struct qpnp_misc_dev *mdev = ERR_PTR(-EINVAL);
 	int rc;
 
-	resource = spmi_get_resource(spmi, NULL, IORESOURCE_MEM, 0);
-	if (!resource) {
-		pr_err("Unable to get spmi resource for MISC\n");
-		return -EINVAL;
-	}
-
-	mdev = kzalloc(sizeof(*mdev), GFP_KERNEL);
+	mdev = devm_kzalloc(&pdev->dev, sizeof(*mdev), GFP_KERNEL);
 	if (!mdev)
 		return -ENOMEM;
 
-	mdev->spmi = spmi;
-	mdev->dev = &(spmi->dev);
-	mdev->resource = resource;
-	dev_set_drvdata(&spmi->dev, mdev);
+	mdev->dev = &pdev->dev;
+	mdev->regmap = dev_get_regmap(mdev->dev->parent, NULL);
+	if (!mdev->regmap) {
+		dev_err(mdev->dev, "Parent regmap is unavailable\n");
+		return -ENXIO;
+	}
 
-	rc = qpnp_read_byte(spmi, resource->start + REG_SUBTYPE,
-				&mdev->version.subtype);
+	rc = qpnp_misc_dt_init(mdev);
+	if (rc < 0) {
+		dev_err(mdev->dev,
+			"Error reading device tree properties, rc=%d\n", rc);
+		return rc;
+	}
+
+
+	rc = qpnp_read_byte(mdev, REG_SUBTYPE, &mdev->version.subtype);
 	if (rc < 0) {
 		dev_err(mdev->dev, "Failed to read subtype, rc=%d\n", rc);
 		return rc;
 	}
 
-	rc = qpnp_read_byte(spmi, resource->start + REG_DIG_MAJOR_REV,
-				&mdev->version.dig_major_rev);
+	rc = qpnp_read_byte(mdev, REG_DIG_MAJOR_REV,
+			&mdev->version.dig_major_rev);
 	if (rc < 0) {
 		dev_err(mdev->dev, "Failed to read dig_major_rev, rc=%d\n", rc);
 		return rc;
@@ -421,13 +311,6 @@ static int qpnp_misc_probe(struct spmi_device *spmi)
 	mutex_lock(&qpnp_misc_dev_list_mutex);
 	list_add_tail(&mdev->list, &qpnp_misc_dev_list);
 	mutex_unlock(&qpnp_misc_dev_list_mutex);
-
-	rc = qpnp_misc_dt_init(mdev);
-	if (rc < 0) {
-		dev_err(mdev->dev,
-			"Error reading device tree properties, rc=%d\n", rc);
-		return rc;
-	}
 
 	rc = qpnp_misc_config(mdev);
 	if (rc < 0) {
@@ -440,35 +323,8 @@ static int qpnp_misc_probe(struct spmi_device *spmi)
 	return 0;
 }
 
-static void qpnp_misc_shutdown(struct spmi_device *spmi)
-{
-	struct qpnp_misc_dev *mdev = dev_get_drvdata(&spmi->dev);
-	int rc;
-
-	if (mdev->support_twm_config) {
-		rc = qpnp_write_byte(mdev->spmi,
-				mdev->resource->start + MISC_SPARE_2,
-				mdev->twm_enable ? mdev->twm_mode : 0x0);
-		if (rc < 0)
-			pr_err("Failed to write MISC_SPARE_2 (twm_mode) val=%d rc=%d\n",
-				mdev->twm_enable ? mdev->twm_mode : 0x0, rc);
-
-		rc = qpnp_write_byte(mdev->spmi,
-				mdev->resource->start + MISC_SPARE_1,
-				mdev->twm_enable ? ENABLE_TWM_MODE : 0x0);
-		if (rc < 0)
-			pr_err("Failed to write MISC_SPARE_1 (twm_state) val=%d rc=%d\n",
-				mdev->twm_enable ? ENABLE_TWM_MODE : 0x0, rc);
-
-		pr_debug("PMIC configured for TWM-%s MODE=%d\n",
-				mdev->twm_enable ? "enabled" : "disabled",
-				mdev->twm_mode);
-	}
-}
-
-static struct spmi_driver qpnp_misc_driver = {
+static struct platform_driver qpnp_misc_driver = {
 	.probe	= qpnp_misc_probe,
-	.shutdown = qpnp_misc_shutdown,
 	.driver	= {
 		.name		= QPNP_MISC_DEV_NAME,
 		.owner		= THIS_MODULE,
@@ -478,12 +334,12 @@ static struct spmi_driver qpnp_misc_driver = {
 
 static int __init qpnp_misc_init(void)
 {
-	return spmi_driver_register(&qpnp_misc_driver);
+	return platform_driver_register(&qpnp_misc_driver);
 }
 
 static void __exit qpnp_misc_exit(void)
 {
-	return spmi_driver_unregister(&qpnp_misc_driver);
+	return platform_driver_unregister(&qpnp_misc_driver);
 }
 
 subsys_initcall(qpnp_misc_init);

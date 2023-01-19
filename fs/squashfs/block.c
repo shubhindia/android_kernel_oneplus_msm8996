@@ -187,9 +187,10 @@ static void read_wq_handler(struct work_struct *work)
 		    struct squashfs_read_request, offload));
 }
 
-static void squashfs_bio_end_io(struct bio *bio, int error)
+static void squashfs_bio_end_io(struct bio *bio)
 {
 	int i;
+	int error = bio->bi_error;
 	struct squashfs_bio_request *bio_req = bio->bi_private;
 
 	bio_put(bio);

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,6 +14,8 @@
 #include <soc/qcom/spm.h>
 
 #define NR_LPM_LEVELS 8
+#define MAXSAMPLES 5
+#define CLUST_SMPL_INVLD_TIME 40000
 
 extern bool use_psci;
 
@@ -28,6 +30,7 @@ struct power_params {
 	uint32_t energy_overhead;	/* Enter + exit over head */
 	uint32_t time_overhead_us;	/* Enter + exit overhead */
 	uint32_t residencies[NR_LPM_LEVELS];
+	uint32_t min_residency;
 	uint32_t max_residency;
 };
 
@@ -76,14 +79,25 @@ struct lpm_cluster_level {
 	unsigned int psci_id;
 	bool is_reset;
 	int reset_level;
-	bool no_cache_flush;
 };
 
 struct low_power_ops {
 	struct msm_spm_device *spm;
-	int (*set_mode)(struct low_power_ops *ops, int mode,
-				struct lpm_cluster_level *level);
+	int (*set_mode)(struct low_power_ops *ops, int mode, bool notify_rpm);
 	enum msm_pm_l2_scm_flag tz_flag;
+};
+
+struct cluster_history {
+	uint32_t resi[MAXSAMPLES];
+	int mode[MAXSAMPLES];
+	int64_t stime[MAXSAMPLES];
+	uint32_t hptr;
+	uint32_t hinvalid;
+	uint32_t htmr_wkup;
+	uint64_t entry_time;
+	int entry_idx;
+	int nsamp;
+	int flag;
 };
 
 struct lpm_cluster {
@@ -110,14 +124,13 @@ struct lpm_cluster {
 	unsigned int psci_mode_shift;
 	unsigned int psci_mode_mask;
 	bool no_saw_devices;
+	struct cluster_history history;
+	struct hrtimer histtimer;
 };
 
-int set_l2_mode(struct low_power_ops *ops, int mode,
-				struct lpm_cluster_level *level);
-int set_system_mode(struct low_power_ops *ops, int mode,
-				struct lpm_cluster_level *level);
-int set_l3_mode(struct low_power_ops *ops, int mode,
-				struct lpm_cluster_level *level);
+int set_l2_mode(struct low_power_ops *ops, int mode, bool notify_rpm);
+int set_system_mode(struct low_power_ops *ops, int mode, bool notify_rpm);
+int set_l3_mode(struct low_power_ops *ops, int mode, bool notify_rpm);
 void lpm_suspend_wake_time(uint64_t wakeup_time);
 
 struct lpm_cluster *lpm_of_parse_cluster(struct platform_device *pdev);
@@ -130,6 +143,7 @@ bool lpm_cpu_mode_allow(unsigned int cpu,
 bool lpm_cluster_mode_allow(struct lpm_cluster *cluster,
 		unsigned int mode, bool from_idle);
 uint32_t *get_per_cpu_max_residency(int cpu);
+uint32_t *get_per_cpu_min_residency(int cpu);
 extern struct lpm_cluster *lpm_root_node;
 
 #ifdef CONFIG_SMP

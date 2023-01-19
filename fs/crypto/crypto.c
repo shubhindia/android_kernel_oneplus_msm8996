@@ -142,11 +142,11 @@ int fscrypt_do_page_crypto(const struct inode *inode, fscrypt_direction_t rw,
 		__le64 index;
 		u8 padding[FS_IV_SIZE - sizeof(__le64)];
 	} iv;
-	struct ablkcipher_request *req = NULL;
+	struct skcipher_request *req = NULL;
 	DECLARE_CRYPTO_WAIT(wait);
 	struct scatterlist dst, src;
 	struct fscrypt_info *ci = inode->i_crypt_info;
-	struct crypto_ablkcipher *tfm = ci->ci_ctfm;
+	struct crypto_skcipher *tfm = ci->ci_ctfm;
 	int res = 0;
 
 	BUG_ON(len == 0);
@@ -161,11 +161,11 @@ int fscrypt_do_page_crypto(const struct inode *inode, fscrypt_direction_t rw,
 					  (u8 *)&iv);
 	}
 
-	req = ablkcipher_request_alloc(tfm, gfp_flags);
+	req = skcipher_request_alloc(tfm, gfp_flags);
 	if (!req)
 		return -ENOMEM;
 
-	ablkcipher_request_set_callback(
+	skcipher_request_set_callback(
 		req, CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
 		crypto_req_done, &wait);
 
@@ -173,12 +173,12 @@ int fscrypt_do_page_crypto(const struct inode *inode, fscrypt_direction_t rw,
 	sg_set_page(&dst, dest_page, len, offs);
 	sg_init_table(&src, 1);
 	sg_set_page(&src, src_page, len, offs);
-	ablkcipher_request_set_crypt(req, &src, &dst, len, &iv);
+	skcipher_request_set_crypt(req, &src, &dst, len, &iv);
 	if (rw == FS_DECRYPT)
-		res = crypto_wait_req(crypto_ablkcipher_decrypt(req), &wait);
+		res = crypto_wait_req(crypto_skcipher_decrypt(req), &wait);
 	else
-		res = crypto_wait_req(crypto_ablkcipher_encrypt(req), &wait);
-	ablkcipher_request_free(req);
+		res = crypto_wait_req(crypto_skcipher_encrypt(req), &wait);
+	skcipher_request_free(req);
 	if (res) {
 		fscrypt_err(inode->i_sb,
 			    "%scryption failed for inode %lu, block %llu: %d",

@@ -5,7 +5,7 @@
  *
  * Copyright (C) 2012 Alexandra Chin <alexandra.chin@tw.synaptics.com>
  * Copyright (C) 2012 Scott Lin <scott.lin@tw.synaptics.com>
- * Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -472,7 +472,7 @@ static int synaptics_i2c_change_pipe_owner(
 	struct synaptics_rmi4_data *rmi4_data, enum subsystem subsystem)
 {
 	/*scm call descriptor */
-	struct scm_desc desc;
+	struct scm_desc desc = {0};
 	struct i2c_client *i2c = to_i2c_client(rmi4_data->pdev->dev.parent);
 	int ret = 0;
 
@@ -3497,6 +3497,10 @@ static int synaptics_dsx_regulator_configure(struct synaptics_rmi4_data
 			*rmi4_data)
 {
 	int retval;
+	u32 voltage_supply[2];
+	u32 current_supply;
+
+	/* Regulator VDD */
 	rmi4_data->regulator_vdd = regulator_get(rmi4_data->pdev->dev.parent,
 			"vdd");
 	if (IS_ERR(rmi4_data->regulator_vdd)) {
@@ -3506,6 +3510,50 @@ static int synaptics_dsx_regulator_configure(struct synaptics_rmi4_data
 		retval = PTR_ERR(rmi4_data->regulator_vdd);
 		return retval;
 	}
+
+	/* Read and set vdd regulator voltage and current */
+	retval = of_property_read_u32(rmi4_data->pdev->dev.parent->of_node,
+				"synaptics,vdd-current", &current_supply);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to get regulator vdd current\n",
+				__func__);
+		goto err_vdd_regulator;
+	}
+	rmi4_data->regulator_vdd_current = current_supply;
+
+	retval = regulator_set_load(rmi4_data->regulator_vdd,
+			rmi4_data->regulator_vdd_current);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to set regulator current vdd\n",
+				__func__);
+		goto err_vdd_regulator;
+	}
+
+	retval = of_property_read_u32_array(
+				rmi4_data->pdev->dev.parent->of_node,
+				"synaptics,vdd-voltage", voltage_supply, 2);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to get regulator vdd voltage\n",
+				__func__);
+		goto err_vdd_regulator;
+	}
+	rmi4_data->regulator_vdd_vmin = voltage_supply[0];
+	rmi4_data->regulator_vdd_vmax = voltage_supply[1];
+
+	retval = regulator_set_voltage(rmi4_data->regulator_vdd,
+			rmi4_data->regulator_vdd_vmin,
+			rmi4_data->regulator_vdd_vmax);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to set regulator voltage vdd\n",
+				__func__);
+		goto err_vdd_regulator;
+	}
+
+	/* Regulator AVDD */
 	rmi4_data->regulator_avdd = regulator_get(rmi4_data->pdev->dev.parent,
 			"avdd");
 	if (IS_ERR(rmi4_data->regulator_avdd)) {
@@ -3513,11 +3561,59 @@ static int synaptics_dsx_regulator_configure(struct synaptics_rmi4_data
 				"%s: Failed to get regulator avdd\n",
 				__func__);
 		retval = PTR_ERR(rmi4_data->regulator_avdd);
-		regulator_put(rmi4_data->regulator_vdd);
-		return retval;
+		goto err_vdd_regulator;
+	}
+
+	/* Read and set avdd regulator voltage and current */
+	retval = of_property_read_u32(rmi4_data->pdev->dev.parent->of_node,
+				"synaptics,avdd-current", &current_supply);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to get regulator avdd current\n",
+				__func__);
+		goto err_avdd_regulator;
+	}
+	rmi4_data->regulator_avdd_current = current_supply;
+
+	retval = regulator_set_load(rmi4_data->regulator_avdd,
+			rmi4_data->regulator_avdd_current);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to set regulator current avdd\n",
+				__func__);
+		goto err_avdd_regulator;
+	}
+
+	retval = of_property_read_u32_array(
+				rmi4_data->pdev->dev.parent->of_node,
+				"synaptics,avdd-voltage", voltage_supply, 2);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+				"%s: Failed to get regulator avdd voltage\n",
+				__func__);
+		goto err_avdd_regulator;
+	}
+	rmi4_data->regulator_avdd_vmin = voltage_supply[0];
+	rmi4_data->regulator_avdd_vmax = voltage_supply[1];
+
+	retval = regulator_set_voltage(rmi4_data->regulator_avdd,
+			rmi4_data->regulator_avdd_vmin,
+			rmi4_data->regulator_avdd_vmax);
+	if (retval < 0) {
+		dev_err(rmi4_data->pdev->dev.parent,
+			"%s: Failed to set regultor voltage avdd\n",
+			__func__);
+		goto err_avdd_regulator;
 	}
 
 	return 0;
+
+err_avdd_regulator:
+	regulator_put(rmi4_data->regulator_avdd);
+err_vdd_regulator:
+	regulator_put(rmi4_data->regulator_vdd);
+
+	return retval;
 };
 
 static int synaptics_dsx_regulator_enable(struct synaptics_rmi4_data
@@ -3606,13 +3702,6 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	rmi4_data->fw_updating = false;
 	rmi4_data->fingers_on_2d = false;
 	rmi4_data->update_coords = true;
-
-	rmi4_data->write_buf = kzalloc(I2C_WRITE_BUF_MAX_LEN, GFP_KERNEL);
-	if (!rmi4_data->write_buf) {
-		retval = -ENOMEM;
-		goto err_write_buf_alloc;
-	}
-	rmi4_data->write_buf_len = I2C_WRITE_BUF_MAX_LEN;
 
 	rmi4_data->irq_enable = synaptics_rmi4_irq_enable;
 	rmi4_data->reset_device = synaptics_rmi4_reset_device;
@@ -3719,6 +3808,13 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	}
 
 	exp_data.workqueue = create_singlethread_workqueue("dsx_exp_workqueue");
+	if (exp_data.workqueue == NULL) {
+		dev_err(&pdev->dev,
+			"%s: Failed to create workqueue\n", __func__);
+		retval = -ENOMEM;
+		goto err_create_wq;
+	}
+
 	INIT_DELAYED_WORK(&exp_data.work, synaptics_rmi4_exp_fn_work);
 	exp_data.rmi4_data = rmi4_data;
 	exp_data.queue_work = true;
@@ -3770,10 +3866,9 @@ err_create_debugfs_file:
 	debugfs_remove_recursive(rmi4_data->dir);
 err_create_debugfs_dir:
 	cancel_delayed_work_sync(&exp_data.work);
-	if (exp_data.workqueue != NULL) {
-		flush_workqueue(exp_data.workqueue);
-		destroy_workqueue(exp_data.workqueue);
-	}
+	flush_workqueue(exp_data.workqueue);
+	destroy_workqueue(exp_data.workqueue);
+err_create_wq:
 	synaptics_rmi4_irq_enable(rmi4_data, false);
 	free_irq(rmi4_data->irq, rmi4_data);
 
@@ -3831,8 +3926,6 @@ err_regulator_enable:
 	regulator_put(rmi4_data->regulator_vdd);
 	regulator_put(rmi4_data->regulator_avdd);
 err_regulator_configure:
-	kfree(rmi4_data->write_buf);
-err_write_buf_alloc:
 	kfree(rmi4_data);
 
 	return retval;
@@ -3927,7 +4020,6 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
 		regulator_put(rmi4_data->regulator_avdd);
 	}
 
-	kfree(rmi4_data->write_buf);
 	kfree(rmi4_data);
 
 	return 0;

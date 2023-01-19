@@ -137,8 +137,11 @@ static int omapfb_setup_plane(struct fb_info *fbi, struct omapfb_plane_info *pi)
 			goto undo;
 	}
 
-	if (ovl->manager)
-		ovl->manager->apply(ovl->manager);
+	if (ovl->manager) {
+		r = ovl->manager->apply(ovl->manager);
+		if (r)
+			goto undo;
+	}
 
 	if (pi->enabled) {
 		r = ovl->enable(ovl);
@@ -605,6 +608,8 @@ int omapfb_ioctl(struct fb_info *fbi, unsigned int cmd, unsigned long arg)
 	} p;
 
 	int r = 0;
+
+	memset(&p, 0, sizeof(p));
 
 	switch (cmd) {
 	case OMAPFB_SYNC_GFX:

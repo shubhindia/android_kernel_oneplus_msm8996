@@ -12,13 +12,20 @@
 #ifndef _MSM_PCM_ROUTING_H
 #define _MSM_PCM_ROUTING_H
 #include <sound/apr_audio-v2.h>
+#include <sound/q6adm-v2.h>
 
+/*
+ * These names are used by HAL to specify the BE. If any changes are
+ * made to the string names or the max name length corresponding
+ * changes need to be made in the HAL to ensure they still match.
+ */
+#define LPASS_BE_NAME_MAX_LENGTH 24
 #define LPASS_BE_PRI_I2S_RX "PRIMARY_I2S_RX"
 #define LPASS_BE_PRI_I2S_TX "PRIMARY_I2S_TX"
 #define LPASS_BE_SLIMBUS_0_RX "SLIMBUS_0_RX"
 #define LPASS_BE_SLIMBUS_0_TX "SLIMBUS_0_TX"
-#define LPASS_BE_SLIMBUS_2_TX "SLIMBUS_2_TX"
 #define LPASS_BE_HDMI "HDMI"
+#define LPASS_BE_DISPLAY_PORT "DISPLAY_PORT"
 #define LPASS_BE_INT_BT_SCO_RX "INT_BT_SCO_RX"
 #define LPASS_BE_INT_BT_SCO_TX "INT_BT_SCO_TX"
 #define LPASS_BE_INT_BT_A2DP_RX "INT_BT_A2DP_RX"
@@ -30,6 +37,10 @@
 #define LPASS_BE_AUXPCM_TX "AUX_PCM_TX"
 #define LPASS_BE_SEC_AUXPCM_RX "SEC_AUX_PCM_RX"
 #define LPASS_BE_SEC_AUXPCM_TX "SEC_AUX_PCM_TX"
+#define LPASS_BE_TERT_AUXPCM_RX "TERT_AUX_PCM_RX"
+#define LPASS_BE_TERT_AUXPCM_TX "TERT_AUX_PCM_TX"
+#define LPASS_BE_QUAT_AUXPCM_RX "QUAT_AUX_PCM_RX"
+#define LPASS_BE_QUAT_AUXPCM_TX "QUAT_AUX_PCM_TX"
 #define LPASS_BE_VOICE_PLAYBACK_TX "VOICE_PLAYBACK_TX"
 #define LPASS_BE_VOICE2_PLAYBACK_TX "VOICE2_PLAYBACK_TX"
 #define LPASS_BE_INCALL_RECORD_RX "INCALL_RECORD_RX"
@@ -46,22 +57,25 @@
 #define LPASS_BE_SEC_MI2S_TX "SEC_MI2S_TX"
 #define LPASS_BE_PRI_MI2S_RX "PRI_MI2S_RX"
 #define LPASS_BE_PRI_MI2S_TX "PRI_MI2S_TX"
-#define LPASS_BE_TERT_MI2S_RX "TERTIARY_MI2S_RX"
-#define LPASS_BE_TERT_MI2S_TX "TERTIARY_MI2S_TX"
+#define LPASS_BE_TERT_MI2S_RX "TERT_MI2S_RX"
+#define LPASS_BE_TERT_MI2S_TX "TERT_MI2S_TX"
 #define LPASS_BE_AUDIO_I2S_RX "AUDIO_I2S_RX"
 #define LPASS_BE_STUB_RX "STUB_RX"
 #define LPASS_BE_STUB_TX "STUB_TX"
 #define LPASS_BE_SLIMBUS_1_RX "SLIMBUS_1_RX"
 #define LPASS_BE_SLIMBUS_1_TX "SLIMBUS_1_TX"
 #define LPASS_BE_STUB_1_TX "STUB_1_TX"
+#define LPASS_BE_SLIMBUS_2_RX "SLIMBUS_2_RX"
+#define LPASS_BE_SLIMBUS_2_TX "SLIMBUS_2_TX"
 #define LPASS_BE_SLIMBUS_3_RX "SLIMBUS_3_RX"
 #define LPASS_BE_SLIMBUS_3_TX "SLIMBUS_3_TX"
 #define LPASS_BE_SLIMBUS_4_RX "SLIMBUS_4_RX"
 #define LPASS_BE_SLIMBUS_4_TX "SLIMBUS_4_TX"
+#define LPASS_BE_SLIMBUS_TX_VI "SLIMBUS_TX_VI"
+#define LPASS_BE_SLIMBUS_5_RX "SLIMBUS_5_RX"
 #define LPASS_BE_SLIMBUS_5_TX "SLIMBUS_5_TX"
 #define LPASS_BE_SLIMBUS_6_RX "SLIMBUS_6_RX"
 #define LPASS_BE_SLIMBUS_6_TX "SLIMBUS_6_TX"
-#define LPASS_BE_SLIMBUS_5_RX "SLIMBUS_5_RX"
 #define LPASS_BE_QUIN_MI2S_RX "QUIN_MI2S_RX"
 #define LPASS_BE_QUIN_MI2S_TX "QUIN_MI2S_TX"
 #define LPASS_BE_SENARY_MI2S_TX "SENARY_MI2S_TX"
@@ -130,8 +144,29 @@
 #define LPASS_BE_QUAT_TDM_TX_6 "QUAT_TDM_TX_6"
 #define LPASS_BE_QUAT_TDM_RX_7 "QUAT_TDM_RX_7"
 #define LPASS_BE_QUAT_TDM_TX_7 "QUAT_TDM_TX_7"
-#define LPASS_BE_AFE_LOOPBACK_TX "AFE_LOOPBACK_TX"
 
+#define LPASS_BE_SLIMBUS_7_RX "SLIMBUS_7_RX"
+#define LPASS_BE_SLIMBUS_7_TX "SLIMBUS_7_TX"
+#define LPASS_BE_SLIMBUS_8_RX "SLIMBUS_8_RX"
+#define LPASS_BE_SLIMBUS_8_TX "SLIMBUS_8_TX"
+
+#define LPASS_BE_USB_AUDIO_RX "USB_AUDIO_RX"
+#define LPASS_BE_USB_AUDIO_TX "USB_AUDIO_TX"
+
+#define LPASS_BE_INT0_MI2S_RX "INT0_MI2S_RX"
+#define LPASS_BE_INT0_MI2S_TX "INT0_MI2S_TX"
+#define LPASS_BE_INT1_MI2S_RX "INT1_MI2S_RX"
+#define LPASS_BE_INT1_MI2S_TX "INT1_MI2S_TX"
+#define LPASS_BE_INT2_MI2S_RX "INT2_MI2S_RX"
+#define LPASS_BE_INT2_MI2S_TX "INT2_MI2S_TX"
+#define LPASS_BE_INT3_MI2S_RX "INT3_MI2S_RX"
+#define LPASS_BE_INT3_MI2S_TX "INT3_MI2S_TX"
+#define LPASS_BE_INT4_MI2S_RX "INT4_MI2S_RX"
+#define LPASS_BE_INT4_MI2S_TX "INT4_MI2S_TX"
+#define LPASS_BE_INT5_MI2S_RX "INT5_MI2S_RX"
+#define LPASS_BE_INT5_MI2S_TX "INT5_MI2S_TX"
+#define LPASS_BE_INT6_MI2S_RX "INT6_MI2S_RX"
+#define LPASS_BE_INT6_MI2S_TX "INT6_MI2S_TX"
 /* For multimedia front-ends, asm session is allocated dynamically.
  * Hence, asm session/multimedia front-end mapping has to be maintained.
  * Due to this reason, additional multimedia front-end must be placed before
@@ -160,6 +195,12 @@ enum {
 	MSM_FRONTEND_DAI_MULTIMEDIA19,
 	MSM_FRONTEND_DAI_MULTIMEDIA20,
 	MSM_FRONTEND_DAI_MULTIMEDIA21,
+	MSM_FRONTEND_DAI_MULTIMEDIA22,
+	MSM_FRONTEND_DAI_MULTIMEDIA23,
+	MSM_FRONTEND_DAI_MULTIMEDIA24,
+	MSM_FRONTEND_DAI_MULTIMEDIA25,
+	MSM_FRONTEND_DAI_MULTIMEDIA26,
+	MSM_FRONTEND_DAI_MULTIMEDIA27,
 	MSM_FRONTEND_DAI_MULTIMEDIA28,
 	MSM_FRONTEND_DAI_MULTIMEDIA29,
 	MSM_FRONTEND_DAI_CS_VOICE,
@@ -213,11 +254,20 @@ enum {
 	MSM_BACKEND_DAI_SEC_I2S_RX,
 	MSM_BACKEND_DAI_SLIMBUS_1_RX,
 	MSM_BACKEND_DAI_SLIMBUS_1_TX,
-	MSM_BACKEND_DAI_SLIMBUS_4_RX,
-	MSM_BACKEND_DAI_SLIMBUS_4_TX,
+	MSM_BACKEND_DAI_SLIMBUS_2_RX,
+	MSM_BACKEND_DAI_SLIMBUS_2_TX,
 	MSM_BACKEND_DAI_SLIMBUS_3_RX,
 	MSM_BACKEND_DAI_SLIMBUS_3_TX,
+	MSM_BACKEND_DAI_SLIMBUS_4_RX,
+	MSM_BACKEND_DAI_SLIMBUS_4_TX,
+	MSM_BACKEND_DAI_SLIMBUS_5_RX,
 	MSM_BACKEND_DAI_SLIMBUS_5_TX,
+	MSM_BACKEND_DAI_SLIMBUS_6_RX,
+	MSM_BACKEND_DAI_SLIMBUS_6_TX,
+	MSM_BACKEND_DAI_SLIMBUS_7_RX,
+	MSM_BACKEND_DAI_SLIMBUS_7_TX,
+	MSM_BACKEND_DAI_SLIMBUS_8_RX,
+	MSM_BACKEND_DAI_SLIMBUS_8_TX,
 	MSM_BACKEND_DAI_EXTPROC_RX,
 	MSM_BACKEND_DAI_EXTPROC_TX,
 	MSM_BACKEND_DAI_EXTPROC_EC_TX,
@@ -232,11 +282,8 @@ enum {
 	MSM_BACKEND_DAI_AUDIO_I2S_RX,
 	MSM_BACKEND_DAI_SEC_AUXPCM_RX,
 	MSM_BACKEND_DAI_SEC_AUXPCM_TX,
-	MSM_BACKEND_DAI_SLIMBUS_6_RX,
-	MSM_BACKEND_DAI_SLIMBUS_6_TX,
 	MSM_BACKEND_DAI_SPDIF_RX,
 	MSM_BACKEND_DAI_SECONDARY_MI2S_RX_SD1,
-	MSM_BACKEND_DAI_SLIMBUS_5_RX,
 	MSM_BACKEND_DAI_QUINARY_MI2S_RX,
 	MSM_BACKEND_DAI_QUINARY_MI2S_TX,
 	MSM_BACKEND_DAI_SENARY_MI2S_TX,
@@ -305,8 +352,27 @@ enum {
 	MSM_BACKEND_DAI_QUAT_TDM_RX_7,
 	MSM_BACKEND_DAI_QUAT_TDM_TX_7,
 	MSM_BACKEND_DAI_INT_BT_A2DP_RX,
-	MSM_BACKEND_DAI_SLIMBUS_2_TX,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
+	MSM_BACKEND_DAI_USB_RX,
+	MSM_BACKEND_DAI_USB_TX,
+	MSM_BACKEND_DAI_DISPLAY_PORT_RX,
+	MSM_BACKEND_DAI_TERT_AUXPCM_RX,
+	MSM_BACKEND_DAI_TERT_AUXPCM_TX,
+	MSM_BACKEND_DAI_QUAT_AUXPCM_RX,
+	MSM_BACKEND_DAI_QUAT_AUXPCM_TX,
+	MSM_BACKEND_DAI_INT0_MI2S_RX,
+	MSM_BACKEND_DAI_INT0_MI2S_TX,
+	MSM_BACKEND_DAI_INT1_MI2S_RX,
+	MSM_BACKEND_DAI_INT1_MI2S_TX,
+	MSM_BACKEND_DAI_INT2_MI2S_RX,
+	MSM_BACKEND_DAI_INT2_MI2S_TX,
+	MSM_BACKEND_DAI_INT3_MI2S_RX,
+	MSM_BACKEND_DAI_INT3_MI2S_TX,
+	MSM_BACKEND_DAI_INT4_MI2S_RX,
+	MSM_BACKEND_DAI_INT4_MI2S_TX,
+	MSM_BACKEND_DAI_INT5_MI2S_RX,
+	MSM_BACKEND_DAI_INT5_MI2S_TX,
+	MSM_BACKEND_DAI_INT6_MI2S_RX,
+	MSM_BACKEND_DAI_INT6_MI2S_TX,
 	MSM_BACKEND_DAI_MAX,
 };
 
@@ -329,18 +395,29 @@ enum {
 #define INVALID_SESSION -1
 #define SESSION_TYPE_RX 0
 #define SESSION_TYPE_TX 1
+#define MAX_SESSION_TYPES 2
 #define INT_RX_VOL_MAX_STEPS 0x2000
 #define INT_RX_VOL_GAIN 0x2000
 
 #define RELEASE_LOCK	0
 #define ACQUIRE_LOCK	1
 
-#define MSM_BACKEND_DAI_PP_PARAMS_REQ_MAX	1
 #define HDMI_RX_ID				0x8001
-#define ADM_PP_PARAM_MUTE_ID			0
-#define ADM_PP_PARAM_MUTE_BIT			1
-#define ADM_PP_PARAM_LATENCY_ID			1
-#define ADM_PP_PARAM_LATENCY_BIT		2
+
+enum {
+	ADM_PP_PARAM_MUTE_ID,
+	ADM_PP_PARAM_LATENCY_ID,
+	ADM_PP_PARAM_LIMITER_ID
+};
+
+enum {
+	ADM_PP_PARAM_MUTE_BIT		= 0x1,
+	ADM_PP_PARAM_LATENCY_BIT	= 0x2,
+	ADM_PP_PARAM_LIMITER_BIT	= 0x4
+};
+
+#define BE_DAI_PORT_SESSIONS_IDX_MAX		4
+#define BE_DAI_FE_SESSIONS_IDX_MAX		2
 
 struct msm_pcm_routing_evt {
 	void (*event_func)(enum msm_pcm_routing_event, void *);
@@ -350,14 +427,22 @@ struct msm_pcm_routing_evt {
 struct msm_pcm_routing_bdai_data {
 	u16 port_id; /* AFE port ID */
 	u8 active; /* track if this backend is enabled */
-	unsigned long fe_sessions; /* Front-end sessions */
-	u64 port_sessions; /* track Tx BE ports -> Rx BE
-			    * number of BE should not exceed
-			    * the size of this field
-			    */
+
+	/* Front-end sessions */
+	unsigned long fe_sessions[BE_DAI_FE_SESSIONS_IDX_MAX];
+	/*
+	 * Track Tx BE ports -> Rx BE ports.
+	 * port_sessions[0] used to track BE 0 to BE 63.
+	 * port_sessions[1] used to track BE 64 to BE 127.
+	 * port_sessions[2] used to track BE 128 to BE 191.
+	 * port_sessions[3] used to track BE 192 to BE 255.
+	 */
+	u64 port_sessions[BE_DAI_PORT_SESSIONS_IDX_MAX];
+
 	unsigned int  sample_rate;
 	unsigned int  channel;
 	unsigned int  format;
+	unsigned int  adm_override_ch;
 	u32 passthr_mode[MSM_FRONTEND_DAI_MAX];
 	char *name;
 };
@@ -380,6 +465,7 @@ struct msm_pcm_stream_app_type_cfg {
 	int app_type;
 	int acdb_dev_id;
 	int sample_rate;
+	u32 copp_token;
 };
 
 /* dai_id: front-end ID,
@@ -410,12 +496,20 @@ void msm_pcm_routing_get_fedai_info(int fe_idx, int sess_type,
 void msm_pcm_routing_acquire_lock(void);
 void msm_pcm_routing_release_lock(void);
 
-void msm_pcm_routing_reg_stream_app_type_cfg(int fedai_id, int app_type,
-			int acdb_dev_id, int sample_rate, int session_type);
-int msm_pcm_routing_get_stream_app_type_cfg(int fedai_id, int session_type,
-			int *app_type, int *acdb_dev_id, int *sample_rate);
-int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
-				int op_channel_cnt, int *ch_wght_coeff,
-				int session_type, bool use_default_chmap,
-				char *channel_map);
+int msm_pcm_routing_reg_stream_app_type_cfg(
+	int fedai_id, int session_type, int be_id,
+	struct msm_pcm_stream_app_type_cfg *cfg_data);
+int msm_pcm_routing_get_stream_app_type_cfg(
+	int fedai_id, int session_type, int *be_id,
+	struct msm_pcm_stream_app_type_cfg *cfg_data);
+int msm_routing_set_downmix_control_data(int be_id, int session_id,
+				 struct asm_stream_pan_ctrl_params *pan_param);
+int msm_pcm_routing_set_channel_mixer_runtime(
+	int be_id, int session_id,
+	int session_type,
+	struct msm_pcm_channel_mixer *params);
+
+int msm_pcm_routing_set_channel_mixer_cfg(
+	int fe_id, int session_type,
+	struct msm_pcm_channel_mixer *params);
 #endif /*_MSM_PCM_H*/

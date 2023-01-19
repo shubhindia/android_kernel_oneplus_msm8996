@@ -941,7 +941,7 @@ void adreno_snapshot(struct kgsl_device *device, struct kgsl_snapshot *snapshot,
 	 * Incase snapshot static blob is running out of memory, Add Active IB1
 	 * and IB2 entries to obj_list so that active ib's can be dumped to
 	 * snapshot dynamic blob.
-	 * */
+	 */
 	if (!snapshot->ib1dumped || !snapshot->ib2dumped)
 		kgsl_snapshot_add_active_ib_obj_list(device, snapshot);
 

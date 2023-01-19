@@ -80,15 +80,15 @@ const char *ipa_event_name[] = {
 	__stringify(ECM_DISCONNECT),
 	__stringify(IPA_TETHERING_STATS_UPDATE_STATS),
 	__stringify(IPA_TETHERING_STATS_UPDATE_NETWORK_STATS),
-	__stringify(IPA_PER_CLIENT_STATS_CONNECT_EVENT),
-	__stringify(IPA_PER_CLIENT_STATS_DISCONNECT_EVENT),
+	__stringify(IPA_QUOTA_REACH),
+	__stringify(IPA_SSR_BEFORE_SHUTDOWN),
+	__stringify(IPA_SSR_AFTER_POWERUP),
 	__stringify(ADD_VLAN_IFACE),
 	__stringify(DEL_VLAN_IFACE),
 	__stringify(ADD_L2TP_VLAN_MAPPING),
 	__stringify(DEL_L2TP_VLAN_MAPPING),
-	__stringify(IPA_QUOTA_REACH),
-	__stringify(IPA_SSR_BEFORE_SHUTDOWN),
-	__stringify(IPA_SSR_AFTER_POWERUP),
+	__stringify(IPA_PER_CLIENT_STATS_CONNECT_EVENT),
+	__stringify(IPA_PER_CLIENT_STATS_DISCONNECT_EVENT),
 	__stringify(WLAN_FWR_SSR_BEFORE_SHUTDOWN),
 };
 
@@ -437,7 +437,7 @@ static ssize_t ipa_read_hdr(struct file *file, char __user *ubuf, size_t count,
 			continue;
 		nbytes = scnprintf(
 			dbg_buff,
-			IPA_MAX_MSG_LEN - 1,
+			IPA_MAX_MSG_LEN,
 			"name:%s len=%d ref=%d partial=%d type=%s ",
 			entry->name,
 			entry->hdr_len,
@@ -448,23 +448,23 @@ static ssize_t ipa_read_hdr(struct file *file, char __user *ubuf, size_t count,
 		if (entry->is_hdr_proc_ctx) {
 			nbytes += scnprintf(
 				dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - 1 - nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
 				"phys_base=0x%pa ",
 				&entry->phys_base);
 		} else {
 			nbytes += scnprintf(
 				dbg_buff + nbytes,
-				IPA_MAX_MSG_LEN - 1 - nbytes,
+				IPA_MAX_MSG_LEN - nbytes,
 				"ofst=%u ",
 				entry->offset_entry->offset >> 2);
 		}
 		for (i = 0; i < entry->hdr_len; i++) {
 			scnprintf(dbg_buff + nbytes + i * 2,
-				  IPA_MAX_MSG_LEN - 1 - nbytes - i * 2,
+				  IPA_MAX_MSG_LEN - nbytes - i * 2,
 				  "%02x", entry->hdr[i]);
 		}
 		scnprintf(dbg_buff + nbytes + entry->hdr_len * 2,
-			  IPA_MAX_MSG_LEN - 1 - nbytes - entry->hdr_len * 2,
+			  IPA_MAX_MSG_LEN - nbytes - entry->hdr_len * 2,
 			  "\n");
 		pr_err("%s", dbg_buff);
 	}
@@ -1486,6 +1486,7 @@ static ssize_t ipa_read_nat4(struct file *file,
 	u16 enable, tbl_entry, flag;
 	u32 no_entrys = 0;
 
+	mutex_lock(&ipa_ctx->nat_mem.lock);
 	value = ipa_ctx->nat_mem.public_ip_addr;
 	pr_err(
 				"Table IP Address:%d.%d.%d.%d\n",
@@ -1647,6 +1648,7 @@ static ssize_t ipa_read_nat4(struct file *file,
 		}
 	}
 	pr_err("Current No. Nat Entries: %d\n", no_entrys);
+	mutex_unlock(&ipa_ctx->nat_mem.lock);
 
 	return 0;
 }

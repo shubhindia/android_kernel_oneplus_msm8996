@@ -66,7 +66,7 @@
 #define QSEE_CE_CLK_100MHZ		100000000
 #define CE_CLK_DIV			1000000
 
-#define QSEECOM_MAX_SG_ENTRY		4096
+#define QSEECOM_MAX_SG_ENTRY			4096
 #define QSEECOM_SG_ENTRY_MSG_BUF_SZ_64BIT	\
 			(QSEECOM_MAX_SG_ENTRY * SG_ENTRY_SZ_64BIT)
 
@@ -6807,11 +6807,9 @@ static int __qseecom_update_qteec_req_buf(struct qseecom_qteec_modfd_req *req,
 				pr_err("Ion client can't retrieve the handle\n");
 				return -ENOMEM;
 			}
-			if ((req->req_len <
-				sizeof(struct qseecom_param_memref)) ||
+			if ((req->req_len < sizeof(uint32_t)) ||
 				(req->ifd_data[i].cmd_buf_offset >
-				req->req_len -
-				sizeof(struct qseecom_param_memref))) {
+				req->req_len - sizeof(uint32_t))) {
 				pr_err("Invalid offset/req len 0x%x/0x%x\n",
 					req->req_len,
 					req->ifd_data[i].cmd_buf_offset);
@@ -8856,9 +8854,10 @@ out:
  */
 static int qseecom_check_whitelist_feature(void)
 {
-	int version = scm_get_feat_version(FEATURE_ID_WHITELIST);
+	u64 version = 0;
+	int ret = scm_get_feat_version(FEATURE_ID_WHITELIST, &version);
 
-	return version >= MAKE_WHITELIST_VERSION(1, 0, 0);
+	return (ret == 0) && (version >= MAKE_WHITELIST_VERSION(1, 0, 0));
 }
 
 static int qseecom_probe(struct platform_device *pdev)

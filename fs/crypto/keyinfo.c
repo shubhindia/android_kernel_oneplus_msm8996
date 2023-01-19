@@ -30,39 +30,37 @@ static int derive_key_aes(const u8 *master_key,
 			  u8 *derived_key, unsigned int derived_keysize)
 {
 	int res = 0;
-	struct ablkcipher_request *req = NULL;
+	struct skcipher_request *req = NULL;
 	DECLARE_CRYPTO_WAIT(wait);
 	struct scatterlist src_sg, dst_sg;
-	struct crypto_ablkcipher *tfm = crypto_alloc_ablkcipher("ecb(aes)", 0, 0);
+	struct crypto_skcipher *tfm = crypto_alloc_skcipher("ecb(aes)", 0, 0);
 
 	if (IS_ERR(tfm)) {
 		res = PTR_ERR(tfm);
 		tfm = NULL;
 		goto out;
 	}
-	crypto_ablkcipher_set_flags(tfm, CRYPTO_TFM_REQ_WEAK_KEY);
-	req = ablkcipher_request_alloc(tfm, GFP_NOFS);
+	crypto_skcipher_set_flags(tfm, CRYPTO_TFM_REQ_WEAK_KEY);
+	req = skcipher_request_alloc(tfm, GFP_NOFS);
 	if (!req) {
 		res = -ENOMEM;
 		goto out;
 	}
-	ablkcipher_request_set_callback(req,
+	skcipher_request_set_callback(req,
 			CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
 			crypto_req_done, &wait);
-	res = crypto_ablkcipher_setkey(tfm, ctx->nonce, sizeof(ctx->nonce));
+	res = crypto_skcipher_setkey(tfm, ctx->nonce, sizeof(ctx->nonce));
 	if (res < 0)
 		goto out;
 
 	sg_init_one(&src_sg, master_key, derived_keysize);
 	sg_init_one(&dst_sg, derived_key, derived_keysize);
-	ablkcipher_request_set_crypt(req, &src_sg, &dst_sg, derived_keysize,
+	skcipher_request_set_crypt(req, &src_sg, &dst_sg, derived_keysize,
 				   NULL);
-	res = crypto_wait_req(crypto_ablkcipher_encrypt(req), &wait);
+	res = crypto_wait_req(crypto_skcipher_encrypt(req), &wait);
 out:
-	if (req)
-		ablkcipher_request_free(req);
-	if (tfm)
-		crypto_free_ablkcipher(tfm);
+	skcipher_request_free(req);
+	crypto_free_skcipher(tfm);
 	return res;
 }
 
@@ -80,22 +78,12 @@ find_and_lock_process_key(const char *prefix,
 	char *description;
 	struct key *key;
 	const struct user_key_payload *ukp;
-	int prefix_size = strlen(prefix);
-	int full_key_len = prefix_size + (FS_KEY_DESCRIPTOR_SIZE * 2) + 1;
 	const struct fscrypt_key *payload;
 
-	/* FIXME: 3.18 causes kernel panic.
 	description = kasprintf(GFP_NOFS, "%s%*phN", prefix,
 				FS_KEY_DESCRIPTOR_SIZE, descriptor);
-	*/
-	description = kmalloc(full_key_len, GFP_NOFS);
 	if (!description)
 		return ERR_PTR(-ENOMEM);
-
-	memcpy(description, prefix, prefix_size);
-	sprintf(description + prefix_size,
-			"%*phN", FS_KEY_DESCRIPTOR_SIZE, descriptor);
-	description[full_key_len - 1] = '\0';
 
 	key = request_key(&key_type_logon, description, NULL);
 	kfree(description);
@@ -224,7 +212,7 @@ static void put_crypt_info(struct fscrypt_info *ci)
 	if (!ci)
 		return;
 
-	crypto_free_ablkcipher(ci->ci_ctfm);
+	crypto_free_skcipher(ci->ci_ctfm);
 	crypto_free_cipher(ci->ci_essiv_tfm);
 	kmem_cache_free(fscrypt_info_cachep, ci);
 }
@@ -300,7 +288,7 @@ int fscrypt_get_encryption_info(struct inode *inode)
 {
 	struct fscrypt_info *crypt_info;
 	struct fscrypt_context ctx;
-	struct crypto_ablkcipher *ctfm;
+	struct crypto_skcipher *ctfm;
 	struct fscrypt_mode *mode;
 	u8 *raw_key = NULL;
 	int res;
@@ -364,7 +352,7 @@ int fscrypt_get_encryption_info(struct inode *inode)
 	if (res)
 		goto out;
 
-	ctfm = crypto_alloc_ablkcipher(mode->cipher_str, 0, 0);
+	ctfm = crypto_alloc_skcipher(mode->cipher_str, 0, 0);
 	if (IS_ERR(ctfm)) {
 		res = PTR_ERR(ctfm);
 		fscrypt_warn(inode->i_sb,
@@ -382,12 +370,12 @@ int fscrypt_get_encryption_info(struct inode *inode)
 		 */
 		mode->logged_impl_name = true;
 		pr_info("fscrypt: %s using implementation \"%s\"\n",
-			mode->friendly_name, "No driver_name support");
-			/* crypto_skcipher_alg(ctfm)->base.cra_driver_name); */
+			mode->friendly_name,
+			crypto_skcipher_alg(ctfm)->base.cra_driver_name);
 	}
 	crypt_info->ci_ctfm = ctfm;
-	crypto_ablkcipher_set_flags(ctfm, CRYPTO_TFM_REQ_WEAK_KEY);
-	res = crypto_ablkcipher_setkey(ctfm, raw_key, mode->keysize);
+	crypto_skcipher_set_flags(ctfm, CRYPTO_TFM_REQ_WEAK_KEY);
+	res = crypto_skcipher_setkey(ctfm, raw_key, mode->keysize);
 	if (res)
 		goto out;
 
@@ -412,9 +400,19 @@ out:
 }
 EXPORT_SYMBOL(fscrypt_get_encryption_info);
 
-void fscrypt_put_encryption_info(struct inode *inode)
+void fscrypt_put_encryption_info(struct inode *inode, struct fscrypt_info *ci)
 {
-	put_crypt_info(inode->i_crypt_info);
-	inode->i_crypt_info = NULL;
+	struct fscrypt_info *prev;
+
+	if (ci == NULL)
+		ci = ACCESS_ONCE(inode->i_crypt_info);
+	if (ci == NULL)
+		return;
+
+	prev = cmpxchg(&inode->i_crypt_info, ci, NULL);
+	if (prev != ci)
+		return;
+
+	put_crypt_info(ci);
 }
 EXPORT_SYMBOL(fscrypt_put_encryption_info);

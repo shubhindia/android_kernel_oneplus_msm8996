@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, 2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -14,7 +14,6 @@
 #include <linux/errno.h>
 #include <linux/etherdevice.h>
 #include <linux/debugfs.h>
-#include <linux/ipc_logging.h>
 #include <linux/in.h>
 #include <linux/stddef.h>
 #include <linux/ip.h>
@@ -42,7 +41,7 @@
 #define IPA_TO_USB_CLIENT IPA_CLIENT_USB_CONS
 #define INACTIVITY_MSEC_DELAY 100
 #define DEFAULT_OUTSTANDING_HIGH 64
-#define DEFAULT_OUTSTANDING_LOW 48
+#define DEFAULT_OUTSTANDING_LOW 32
 #define DEBUGFS_TEMP_BUF_SIZE 4
 #define RNDIS_IPA_PKT_TYPE 0x00000001
 #define RNDIS_IPA_DFLT_RT_HDL 0
@@ -59,38 +58,12 @@
 #define DEFAULT_AGGR_TIME_LIMIT 1
 #define DEFAULT_AGGR_PKT_LIMIT 0
 
-#define IPA_RNDIS_IPC_LOG_PAGES 50
-
-#define IPA_RNDIS_IPC_LOGGING(buf, fmt, args...) \
-	do { \
-		if (buf) \
-			ipc_log_string((buf), fmt, __func__, __LINE__, \
-			## args); \
-	} while (0)
-
-static void *ipa_rndis_logbuf;
-
-#define RNDIS_IPA_DEBUG(fmt, args...) \
-	do { \
-		pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
-		if (ipa_rndis_logbuf) { \
-			IPA_RNDIS_IPC_LOGGING(ipa_rndis_logbuf, \
-			DRV_NAME " %s:%d " fmt, ## args); \
-		} \
-	} while (0)
-
-#define RNDIS_IPA_DEBUG_XMIT(fmt, args...) \
-	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
 
 #define RNDIS_IPA_ERROR(fmt, args...) \
-	do { \
 		pr_err(DRV_NAME "@%s@%d@ctx:%s: "\
-			fmt, __func__, __LINE__, current->comm, ## args);\
-		if (ipa_rndis_logbuf) { \
-			IPA_RNDIS_IPC_LOGGING(ipa_rndis_logbuf, \
-			DRV_NAME " %s:%d " fmt, ## args); \
-		} \
-	} while (0)
+				fmt, __func__, __LINE__, current->comm, ## args)
+#define RNDIS_IPA_DEBUG(fmt, args...) \
+			pr_debug("ctx: %s, "fmt, current->comm, ## args)
 
 #define NULL_CHECK_RETVAL(ptr) \
 		do { \
@@ -201,16 +174,16 @@ enum rndis_ipa_operation {
  */
 struct rndis_ipa_dev {
 	struct net_device *net;
-	u32 tx_filter;
+	bool tx_filter;
 	u32 tx_dropped;
-	u32 tx_dump_enable;
-	u32 rx_filter;
+	bool tx_dump_enable;
+	bool rx_filter;
 	u32 rx_dropped;
-	u32 rx_dump_enable;
-	u32 icmp_filter;
-	u32 rm_enable;
-	u32 deaggregation_enable;
-	u32 during_xmit_error;
+	bool rx_dump_enable;
+	bool icmp_filter;
+	bool rm_enable;
+	bool deaggregation_enable;
+	bool during_xmit_error;
 	struct dentry *directory;
 	uint32_t eth_ipv4_hdr_hdl;
 	uint32_t eth_ipv6_hdr_hdl;
@@ -476,6 +449,11 @@ struct rndis_pkt_hdr rndis_template_hdr = {
 	.zeroes = {0},
 };
 
+static void rndis_ipa_msg_free_cb(void *buff, u32 len, u32 type)
+{
+	kfree(buff);
+}
+
 /**
  * rndis_ipa_init() - create network device and initialize internal
  *  data structures
@@ -675,6 +653,8 @@ int rndis_ipa_pipe_connect_notify(u32 usb_to_ipa_hdl,
 	int next_state;
 	int result;
 	unsigned long flags;
+	struct ipa_ecm_msg *rndis_msg;
+	struct ipa_msg_meta msg_meta;
 
 	RNDIS_IPA_LOG_ENTRY();
 
@@ -744,6 +724,26 @@ int rndis_ipa_pipe_connect_notify(u32 usb_to_ipa_hdl,
 		goto fail;
 	}
 	RNDIS_IPA_DEBUG("netif_carrier_on() was called\n");
+
+	rndis_msg = kzalloc(sizeof(*rndis_msg), GFP_KERNEL);
+	if (!rndis_msg) {
+		result = -ENOMEM;
+		goto fail;
+	}
+
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = ECM_CONNECT;
+	msg_meta.msg_len = sizeof(struct ipa_ecm_msg);
+	strlcpy(rndis_msg->name, rndis_ipa_ctx->net->name,
+		IPA_RESOURCE_NAME_MAX);
+	rndis_msg->ifindex = rndis_ipa_ctx->net->ifindex;
+
+	result = ipa_send_msg(&msg_meta, rndis_msg, rndis_ipa_msg_free_cb);
+	if (result) {
+		RNDIS_IPA_ERROR("fail to send ECM_CONNECT for rndis\n");
+		kfree(rndis_msg);
+		goto fail;
+	}
 
 	spin_lock_irqsave(&rndis_ipa_ctx->state_lock, flags);
 	next_state = rndis_ipa_next_state(rndis_ipa_ctx->state,
@@ -864,8 +864,7 @@ static netdev_tx_t rndis_ipa_start_xmit(struct sk_buff *skb,
 
 	net->trans_start = jiffies;
 
-	RNDIS_IPA_DEBUG_XMIT
-		("Tx, len=%d, skb->protocol=%d, outstanding=%d\n",
+	RNDIS_IPA_DEBUG("Tx, len=%d, skb->protocol=%d, outstanding=%d\n",
 		skb->len, skb->protocol,
 		atomic_read(&rndis_ipa_ctx->outstanding_pkts));
 
@@ -974,9 +973,7 @@ static void rndis_ipa_tx_complete_notify(void *private,
 	rndis_ipa_ctx->net->stats.tx_packets++;
 	rndis_ipa_ctx->net->stats.tx_bytes += skb->len;
 
-	if (atomic_read(&rndis_ipa_ctx->outstanding_pkts) > 0)
-		atomic_dec(&rndis_ipa_ctx->outstanding_pkts);
-
+	atomic_dec(&rndis_ipa_ctx->outstanding_pkts);
 	if (netif_queue_stopped(rndis_ipa_ctx->net) &&
 		netif_carrier_ok(rndis_ipa_ctx->net) &&
 		atomic_read(&rndis_ipa_ctx->outstanding_pkts) <
@@ -1195,6 +1192,8 @@ int rndis_ipa_pipe_disconnect_notify(void *private)
 	int outstanding_dropped_pkts;
 	int retval;
 	unsigned long flags;
+	struct ipa_ecm_msg *rndis_msg;
+	struct ipa_msg_meta msg_meta;
 
 	RNDIS_IPA_LOG_ENTRY();
 
@@ -1222,6 +1221,23 @@ int rndis_ipa_pipe_disconnect_notify(void *private)
 	netif_carrier_off(rndis_ipa_ctx->net);
 	RNDIS_IPA_DEBUG("carrier_off notification was sent\n");
 
+	rndis_msg = kzalloc(sizeof(*rndis_msg), GFP_KERNEL);
+	if (!rndis_msg)
+		return -ENOMEM;
+
+	memset(&msg_meta, 0, sizeof(struct ipa_msg_meta));
+	msg_meta.msg_type = ECM_DISCONNECT;
+	msg_meta.msg_len = sizeof(struct ipa_ecm_msg);
+	strlcpy(rndis_msg->name, rndis_ipa_ctx->net->name,
+		IPA_RESOURCE_NAME_MAX);
+	rndis_msg->ifindex = rndis_ipa_ctx->net->ifindex;
+
+	retval = ipa_send_msg(&msg_meta, rndis_msg, rndis_ipa_msg_free_cb);
+	if (retval) {
+		RNDIS_IPA_ERROR("fail to send ECM_DISCONNECT for rndis\n");
+		kfree(rndis_msg);
+		return -EPERM;
+	}
 	netif_stop_queue(rndis_ipa_ctx->net);
 	RNDIS_IPA_DEBUG("queue stopped\n");
 
@@ -2422,19 +2438,12 @@ static ssize_t rndis_ipa_debugfs_atomic_read(struct file *file,
 
 static int rndis_ipa_init_module(void)
 {
-	ipa_rndis_logbuf =
-		ipc_log_context_create(IPA_RNDIS_IPC_LOG_PAGES, "ipa_rndis", 0);
-	if (ipa_rndis_logbuf == NULL)
-		RNDIS_IPA_DEBUG("failed to create IPC log, continue...\n");
 	pr_info("RNDIS_IPA module is loaded.");
 	return 0;
 }
 
 static void rndis_ipa_cleanup_module(void)
 {
-	if (ipa_rndis_logbuf)
-		ipc_log_context_destroy(ipa_rndis_logbuf);
-	ipa_rndis_logbuf = NULL;
 	pr_info("RNDIS_IPA module is unloaded.");
 	return;
 }

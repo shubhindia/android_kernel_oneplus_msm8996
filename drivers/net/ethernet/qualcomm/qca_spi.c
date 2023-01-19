@@ -41,7 +41,6 @@
 #include <linux/skbuff.h>
 #include <linux/spi/spi.h>
 #include <linux/types.h>
-#include <linux/version.h>
 
 #include "qca_7k.h"
 #include "qca_debug.h"
@@ -439,7 +438,6 @@ qcaspi_qca7k_sync(struct qcaspi *qca, int event)
 	u16 signature = 0;
 	u16 spi_config;
 	u16 wrbuf_space = 0;
-	static u16 reset_count;
 
 	if (event == QCASPI_EVENT_CPUON) {
 		/* Read signature twice, if not valid
@@ -492,13 +490,13 @@ qcaspi_qca7k_sync(struct qcaspi *qca, int event)
 
 		qca->sync = QCASPI_SYNC_RESET;
 		qca->stats.trig_reset++;
-		reset_count = 0;
+		qca->reset_count = 0;
 		break;
 	case QCASPI_SYNC_RESET:
-		reset_count++;
+		qca->reset_count++;
 		netdev_dbg(qca->net_dev, "sync: waiting for CPU on, count %u.\n",
-			   reset_count);
-		if (reset_count >= QCASPI_RESET_TIMEOUT) {
+			   qca->reset_count);
+		if (qca->reset_count >= QCASPI_RESET_TIMEOUT) {
 			/* reset did not seem to take place, try again */
 			qca->sync = QCASPI_SYNC_UNKNOWN;
 			qca->stats.reset_timeout++;
@@ -572,7 +570,7 @@ qcaspi_spi_thread(void *data)
 			}
 
 			/* can only handle other interrupts
-			 * if sync has occured
+			 * if sync has occurred
 			 */
 			if (qca->sync == QCASPI_SYNC_READY) {
 				if (intr_cause & SPI_INT_PKT_AVLBL)
@@ -844,7 +842,7 @@ static const struct of_device_id qca_spi_of_match[] = {
 MODULE_DEVICE_TABLE(of, qca_spi_of_match);
 
 static int
-qca_spi_probe(struct spi_device *spi_device)
+qca_spi_probe(struct spi_device *spi)
 {
 	struct qcaspi *qca = NULL;
 	struct net_device *qcaspi_devs = NULL;
@@ -852,52 +850,52 @@ qca_spi_probe(struct spi_device *spi_device)
 	u16 signature;
 	const char *mac;
 
-	if (!spi_device->dev.of_node) {
-		dev_err(&spi_device->dev, "Missing device tree\n");
+	if (!spi->dev.of_node) {
+		dev_err(&spi->dev, "Missing device tree\n");
 		return -EINVAL;
 	}
 
-	legacy_mode = of_property_read_bool(spi_device->dev.of_node,
+	legacy_mode = of_property_read_bool(spi->dev.of_node,
 					    "qca,legacy-mode");
 
 	if (qcaspi_clkspeed == 0) {
-		if (spi_device->max_speed_hz)
-			qcaspi_clkspeed = spi_device->max_speed_hz;
+		if (spi->max_speed_hz)
+			qcaspi_clkspeed = spi->max_speed_hz;
 		else
 			qcaspi_clkspeed = QCASPI_CLK_SPEED;
 	}
 
 	if ((qcaspi_clkspeed < QCASPI_CLK_SPEED_MIN) ||
 	    (qcaspi_clkspeed > QCASPI_CLK_SPEED_MAX)) {
-		dev_info(&spi_device->dev, "Invalid clkspeed: %d\n",
-			 qcaspi_clkspeed);
+		dev_err(&spi->dev, "Invalid clkspeed: %d\n",
+			qcaspi_clkspeed);
 		return -EINVAL;
 	}
 
 	if ((qcaspi_burst_len < QCASPI_BURST_LEN_MIN) ||
 	    (qcaspi_burst_len > QCASPI_BURST_LEN_MAX)) {
-		dev_info(&spi_device->dev, "Invalid burst len: %d\n",
-			 qcaspi_burst_len);
+		dev_err(&spi->dev, "Invalid burst len: %d\n",
+			qcaspi_burst_len);
 		return -EINVAL;
 	}
 
 	if ((qcaspi_pluggable < QCASPI_PLUGGABLE_MIN) ||
 	    (qcaspi_pluggable > QCASPI_PLUGGABLE_MAX)) {
-		dev_info(&spi_device->dev, "Invalid pluggable: %d\n",
-			 qcaspi_pluggable);
+		dev_err(&spi->dev, "Invalid pluggable: %d\n",
+			qcaspi_pluggable);
 		return -EINVAL;
 	}
 
-	dev_info(&spi_device->dev, "ver=%s, clkspeed=%d, burst_len=%d, pluggable=%d\n",
+	dev_info(&spi->dev, "ver=%s, clkspeed=%d, burst_len=%d, pluggable=%d\n",
 		 QCASPI_DRV_VERSION,
 		 qcaspi_clkspeed,
 		 qcaspi_burst_len,
 		 qcaspi_pluggable);
 
-	spi_device->mode = SPI_MODE_3;
-	spi_device->max_speed_hz = qcaspi_clkspeed;
-	if (spi_setup(spi_device) < 0) {
-		dev_err(&spi_device->dev, "Unable to setup SPI device\n");
+	spi->mode = SPI_MODE_3;
+	spi->max_speed_hz = qcaspi_clkspeed;
+	if (spi_setup(spi) < 0) {
+		dev_err(&spi->dev, "Unable to setup SPI device\n");
 		return -EFAULT;
 	}
 
@@ -910,21 +908,23 @@ qca_spi_probe(struct spi_device *spi_device)
 	qca = netdev_priv(qcaspi_devs);
 	if (!qca) {
 		free_netdev(qcaspi_devs);
-		dev_err(&spi_device->dev, "Fail to retrieve private structure\n");
+		dev_err(&spi->dev, "Fail to retrieve private structure\n");
 		return -ENOMEM;
 	}
 	qca->net_dev = qcaspi_devs;
-	qca->spi_dev = spi_device;
+	qca->spi_dev = spi;
 	qca->legacy_mode = legacy_mode;
 
-	mac = of_get_mac_address(spi_device->dev.of_node);
+	spi_set_drvdata(spi, qcaspi_devs);
+
+	mac = of_get_mac_address(spi->dev.of_node);
 
 	if (mac)
 		ether_addr_copy(qca->net_dev->dev_addr, mac);
 
 	if (!is_valid_ether_addr(qca->net_dev->dev_addr)) {
 		eth_hw_addr_random(qca->net_dev);
-		dev_info(&spi_device->dev, "Using random MAC address: %pM\n",
+		dev_info(&spi->dev, "Using random MAC address: %pM\n",
 			 qca->net_dev->dev_addr);
 	}
 
@@ -935,7 +935,7 @@ qca_spi_probe(struct spi_device *spi_device)
 		qcaspi_read_register(qca, SPI_REG_SIGNATURE, &signature);
 
 		if (signature != QCASPI_GOOD_SIGNATURE) {
-			dev_err(&spi_device->dev, "Invalid signature (0x%04X)\n",
+			dev_err(&spi->dev, "Invalid signature (0x%04X)\n",
 				signature);
 			free_netdev(qcaspi_devs);
 			return -EFAULT;
@@ -943,13 +943,11 @@ qca_spi_probe(struct spi_device *spi_device)
 	}
 
 	if (register_netdev(qcaspi_devs)) {
-		dev_info(&spi_device->dev, "Unable to register net device %s\n",
-			 qcaspi_devs->name);
+		dev_err(&spi->dev, "Unable to register net device %s\n",
+			qcaspi_devs->name);
 		free_netdev(qcaspi_devs);
 		return -EFAULT;
 	}
-
-	spi_set_drvdata(spi_device, qcaspi_devs);
 
 	qcaspi_init_device_debugfs(qca);
 
@@ -957,9 +955,9 @@ qca_spi_probe(struct spi_device *spi_device)
 }
 
 static int
-qca_spi_remove(struct spi_device *spi_device)
+qca_spi_remove(struct spi_device *spi)
 {
-	struct net_device *qcaspi_devs = spi_get_drvdata(spi_device);
+	struct net_device *qcaspi_devs = spi_get_drvdata(spi);
 	struct qcaspi *qca = netdev_priv(qcaspi_devs);
 
 	qcaspi_remove_device_debugfs(qca);
@@ -979,7 +977,6 @@ MODULE_DEVICE_TABLE(spi, qca_spi_id);
 static struct spi_driver qca_spi_driver = {
 	.driver	= {
 		.name	= QCASPI_DRV_NAME,
-		.owner	= THIS_MODULE,
 		.of_match_table = qca_spi_of_match,
 	},
 	.id_table = qca_spi_id,

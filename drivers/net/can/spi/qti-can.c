@@ -44,7 +44,7 @@
 #define DRIVER_MODE_RAW_FRAMES		0
 #define DRIVER_MODE_PROPERTIES		1
 #define DRIVER_MODE_AMB			2
-#define QUERY_FIRMWARE_TIMEOUT_MS	1
+#define QUERY_FIRMWARE_TIMEOUT_MS	100
 
 struct qti_can {
 	struct net_device	**netdev;
@@ -121,6 +121,8 @@ struct spi_miso { /* TLV for MISO line */
 #define CMD_END_BOOT_ROM_UPGRADE	0x9B
 #define CMD_END_FW_UPDATE_FILE		0x9C
 #define CMD_UPDATE_TIME_INFO		0x9D
+#define CMD_UPDATE_SUSPEND_EVENT	0x9E
+#define CMD_UPDATE_RESUME_EVENT		0x9F
 
 #define IOCTL_RELEASE_CAN_BUFFER	(SIOCDEVPRIVATE + 0)
 #define IOCTL_ENABLE_BUFFERING		(SIOCDEVPRIVATE + 1)
@@ -167,7 +169,7 @@ struct can_add_filter_resp {
 
 struct can_receive_frame {
 	u8 can_if;
-	u64 ts;
+	__le64 ts;
 	u32 mid;
 	u8 dlc;
 	u8 data[8];
@@ -183,7 +185,7 @@ struct can_config_bit_timing {
 } __packed;
 
 struct can_time_info {
-	u64 time;
+	__le64 time;
 } __packed;
 
 static struct can_bittiming_const rh850_bittiming_const = {
@@ -294,7 +296,7 @@ static void qti_can_receive_frame(struct qti_can *priv_data,
 
 	netdev = priv_data->netdev[frame->can_if];
 	skb = alloc_can_skb(netdev, &cf);
-	if (skb == NULL) {
+	if (!skb) {
 		LOGDE("skb alloc failed. frame->can_if %d\n", frame->can_if);
 		return;
 	}
@@ -335,7 +337,7 @@ static void qti_can_receive_property(struct qti_can *priv_data,
 	dev = &priv_data->spidev->dev;
 	netdev = priv_data->netdev[0];
 	skb = alloc_canfd_skb(netdev, &cfd);
-	if (skb == NULL) {
+	if (!skb) {
 		LOGDE("skb alloc failed. frame->can_if %d\n", 0);
 		return;
 	}
@@ -415,7 +417,7 @@ static int qti_can_process_response(struct qti_can *priv_data,
 		ret |= (fw_resp->min & 0xFF);
 	} else if (resp->cmd == CMD_UPDATE_TIME_INFO) {
 		struct can_time_info *time_data =
-		     (struct can_time_info *)resp->data;
+				(struct can_time_info *)resp->data;
 		ktime_now = ktime_get_boottime();
 		mstime = ktime_to_ms(ktime_now);
 		priv_data->time_diff = mstime - (le64_to_cpu(time_data->time));
@@ -503,7 +505,7 @@ static int qti_can_do_spi_transaction(struct qti_can *priv_data)
 	dev = &spi->dev;
 	msg = devm_kzalloc(&spi->dev, sizeof(*msg), GFP_KERNEL);
 	xfer = devm_kzalloc(&spi->dev, sizeof(*xfer), GFP_KERNEL);
-	if ((NULL == xfer) || (NULL == msg))
+	if (!xfer || !msg)
 		return -ENOMEM;
 	LOGDI(">%x %2d [%d]\n", priv_data->tx_buf[0],
 	      priv_data->tx_buf[1], priv_data->tx_buf[2]);
@@ -576,6 +578,30 @@ static int qti_can_query_firmware_version(struct qti_can *priv_data)
 				msecs_to_jiffies(QUERY_FIRMWARE_TIMEOUT_MS));
 		ret = priv_data->cmd_result;
 	}
+
+	return ret;
+}
+
+static int qti_can_notify_power_events(struct qti_can *priv_data, u8 event_type)
+{
+	char *tx_buf, *rx_buf;
+	int ret;
+	struct spi_mosi *req;
+
+	mutex_lock(&priv_data->spi_lock);
+	tx_buf = priv_data->tx_buf;
+	rx_buf = priv_data->rx_buf;
+	memset(tx_buf, 0, XFER_BUFFER_SIZE);
+	memset(rx_buf, 0, XFER_BUFFER_SIZE);
+	priv_data->xfer_length = XFER_BUFFER_SIZE;
+
+	req = (struct spi_mosi *)tx_buf;
+	req->cmd = event_type;
+	req->len = 0;
+	req->seq = atomic_inc_return(&priv_data->msg_seq);
+
+	ret = qti_can_do_spi_transaction(priv_data);
+	mutex_unlock(&priv_data->spi_lock);
 
 	return ret;
 }
@@ -741,7 +767,7 @@ static netdev_tx_t qti_can_netdev_start_xmit(
 		return NETDEV_TX_OK;
 	}
 	tx_work = kzalloc(sizeof(*tx_work), GFP_ATOMIC);
-	if (NULL == tx_work)
+	if (!tx_work)
 		return NETDEV_TX_OK;
 	INIT_WORK(&tx_work->work, qti_can_send_can_frame);
 	tx_work->netdev = netdev;
@@ -820,7 +846,7 @@ static int qti_can_data_buffering(struct net_device *netdev,
 	}
 
 	req = (struct spi_mosi *)tx_buf;
-	if (IOCTL_ENABLE_BUFFERING == cmd)
+	if (cmd == IOCTL_ENABLE_BUFFERING)
 		req->cmd = CMD_CAN_DATA_BUFF_ADD;
 	else
 		req->cmd = CMD_CAN_DATA_BUFF_REMOVE;
@@ -936,7 +962,7 @@ static int qti_can_frame_filter(struct net_device *netdev,
 	}
 
 	req = (struct spi_mosi *)tx_buf;
-	if (IOCTL_ADD_FRAME_FILTER == cmd)
+	if (cmd == IOCTL_ADD_FRAME_FILTER)
 		req->cmd = CMD_CAN_ADD_FILTER;
 	else
 		req->cmd = CMD_CAN_REMOVE_FILTER;
@@ -1253,7 +1279,6 @@ cleanup_privdata:
 }
 
 static const struct of_device_id qti_can_match_table[] = {
-	{ .compatible = "qcom,renesas,rh850" },
 	{ .compatible = "qcom,nxp,mpc5746c" },
 	{ }
 };
@@ -1440,6 +1465,10 @@ static int qti_can_remove(struct spi_device *spi)
 static int qti_can_suspend(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
+	struct qti_can *priv_data = spi_get_drvdata(spi);
+	u8 power_event = CMD_UPDATE_SUSPEND_EVENT;
+
+	qti_can_notify_power_events(priv_data, power_event);
 
 	enable_irq_wake(spi->irq);
 	return 0;
@@ -1449,9 +1478,10 @@ static int qti_can_resume(struct device *dev)
 {
 	struct spi_device *spi = to_spi_device(dev);
 	struct qti_can *priv_data = spi_get_drvdata(spi);
+	u8 power_event = CMD_UPDATE_RESUME_EVENT;
 
 	disable_irq_wake(spi->irq);
-	qti_can_rx_message(priv_data);
+	qti_can_notify_power_events(priv_data, power_event);
 	return 0;
 }
 

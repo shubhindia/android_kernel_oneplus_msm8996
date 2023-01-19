@@ -101,6 +101,8 @@ enum ipa_aggr_mode {
 enum ipa_dp_evt_type {
 	IPA_RECEIVE,
 	IPA_WRITE_DONE,
+	IPA_CLIENT_START_POLL,
+	IPA_CLIENT_COMP_NAPI,
 };
 
 /**
@@ -610,6 +612,7 @@ struct ipa_ext_intf {
  * @skip_ep_cfg: boolean field that determines if EP should be configured
  *  by IPA driver
  * @keep_ipa_awake: when true, IPA will not be clock gated
+ * @napi_enabled: when true, IPA call client callback to start polling
  */
 struct ipa_sys_connect_params {
 	struct ipa_ep_cfg ipa_ep_cfg;
@@ -619,6 +622,8 @@ struct ipa_sys_connect_params {
 	ipa_notify_cb notify;
 	bool skip_ep_cfg;
 	bool keep_ipa_awake;
+	bool napi_enabled;
+	bool recycle_enabled;
 };
 
 /**
@@ -1019,6 +1024,8 @@ struct ipa_wdi_ul_params_smmu {
 	struct sg_table rdy_comp_ring;
 	phys_addr_t rdy_comp_ring_wp_pa;
 	u32 rdy_comp_ring_size;
+	u32 *rdy_ring_rp_va;
+	u32 *rdy_comp_ring_wp_va;
 };
 
 /**
@@ -1082,6 +1089,12 @@ struct ipa_wdi_in_params {
 #ifdef IPA_WAN_MSG_IPv6_ADDR_GW_LEN
 	ipa_wdi_meter_notifier_cb wdi_notify;
 #endif
+};
+
+enum ipa_upstream_type {
+	IPA_UPSTEAM_MODEM = 1,
+	IPA_UPSTEAM_WLAN,
+	IPA_UPSTEAM_MAX
 };
 
 /**
@@ -1149,16 +1162,6 @@ struct ipa_gsi_ep_config {
 	int ipa_if_tlv;
 	int ipa_if_aos;
 	int ee;
-};
-
-/**
- * struct ipa_tz_unlock_reg_info - Used in order unlock regions of memory by TZ
- * @reg_addr - Physical address of the start of the region
- * @size - Size of the region in bytes
- */
-struct ipa_tz_unlock_reg_info {
-	u64 reg_addr;
-	u64 size;
 };
 
 #if defined CONFIG_IPA || defined CONFIG_IPA3
@@ -1334,6 +1337,8 @@ int ipa_tx_dp_mul(enum ipa_client_type dst,
 			struct ipa_tx_data_desc *data_desc);
 
 void ipa_free_skb(struct ipa_rx_data *);
+int ipa_rx_poll(u32 clnt_hdl, int budget);
+void ipa_recycle_wan_skb(struct sk_buff *skb);
 
 /*
  * System pipes
@@ -1499,8 +1504,7 @@ struct iommu_domain *ipa_get_smmu_domain(void);
 
 int ipa_disable_apps_wan_cons_deaggr(uint32_t agg_size, uint32_t agg_count);
 
-const struct ipa_gsi_ep_config *ipa_get_gsi_ep_info
-	(enum ipa_client_type client);
+struct ipa_gsi_ep_config *ipa_get_gsi_ep_info(int ipa_ep_idx);
 
 int ipa_stop_gsi_channel(u32 clnt_hdl);
 
@@ -1527,21 +1531,6 @@ typedef void (*ipa_ready_cb)(void *user_data);
 */
 int ipa_register_ipa_ready_cb(void (*ipa_ready_cb)(void *user_data),
 			      void *user_data);
-
-/**
- * ipa_tz_unlock_reg - Unlocks memory regions so that they become accessible
- *	from AP.
- * @reg_info - Pointer to array of memory regions to unlock
- * @num_regs - Number of elements in the array
- *
- * Converts the input array of regions to a struct that TZ understands and
- * issues an SCM call.
- * Also flushes the memory cache to DDR in order to make sure that TZ sees the
- * correct data structure.
- *
- * Returns: 0 on success, negative on failure
- */
-int ipa_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info, u16 num_regs);
 
 #else /* (CONFIG_IPA || CONFIG_IPA3) */
 
@@ -1908,6 +1897,15 @@ static inline int ipa_tx_dp_mul(
 static inline void ipa_free_skb(struct ipa_rx_data *rx_in)
 {
 	return;
+}
+
+static inline int ipa_rx_poll(u32 clnt_hdl, int budget)
+{
+	return -EPERM;
+}
+
+static inline void ipa_recycle_wan_skb(struct sk_buff *skb)
+{
 }
 
 /*
@@ -2279,8 +2277,7 @@ static inline int ipa_disable_apps_wan_cons_deaggr(void)
 	return -EINVAL;
 }
 
-static inline const struct ipa_gsi_ep_config *ipa_get_gsi_ep_info
-	(int ipa_ep_idx)
+static inline struct ipa_gsi_ep_config *ipa_get_gsi_ep_info(int ipa_ep_idx)
 {
 	return NULL;
 }
@@ -2293,12 +2290,6 @@ static inline int ipa_stop_gsi_channel(u32 clnt_hdl)
 static inline int ipa_register_ipa_ready_cb(
 	void (*ipa_ready_cb)(void *user_data),
 	void *user_data)
-{
-	return -EPERM;
-}
-
-static inline int ipa_tz_unlock_reg(struct ipa_tz_unlock_reg_info *reg_info,
-	u16 num_regs)
 {
 	return -EPERM;
 }

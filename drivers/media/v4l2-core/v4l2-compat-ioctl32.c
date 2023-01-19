@@ -138,6 +138,7 @@ struct v4l2_format32 {
 		struct v4l2_window32	win;
 		struct v4l2_vbi_format	vbi;
 		struct v4l2_sliced_vbi_format	sliced;
+		struct v4l2_sdr_format	sdr;
 		__u8	raw_data[200];        /* user-defined */
 	} fmt;
 };
@@ -221,6 +222,10 @@ static int __get_v4l2_format32(struct v4l2_format __user *kp,
 	case V4L2_BUF_TYPE_SLICED_VBI_OUTPUT:
 		return copy_in_user(&kp->fmt.sliced, &up->fmt.sliced,
 				    sizeof(kp->fmt.sliced)) ? -EFAULT : 0;
+	case V4L2_BUF_TYPE_SDR_CAPTURE:
+	case V4L2_BUF_TYPE_SDR_OUTPUT:
+		return copy_in_user(&kp->fmt.sdr, &up->fmt.sdr,
+				    sizeof(kp->fmt.sdr)) ? -EFAULT : 0;
 	default:
 		return -EINVAL;
 	}
@@ -249,8 +254,7 @@ static int get_v4l2_create32(struct v4l2_create_buffers __user *kp,
 {
 	if (!access_ok(VERIFY_READ, up, sizeof(*up)) ||
 	    copy_in_user(kp, up,
-			 offsetof(struct v4l2_create_buffers32, format)) ||
-	    copy_in_user(kp->reserved, up->reserved, sizeof(kp->reserved)))
+			 offsetof(struct v4l2_create_buffers32, format)))
 		return -EFAULT;
 	return __get_v4l2_format32(&kp->format, &up->format,
 				   aux_buf, aux_space);
@@ -284,6 +288,10 @@ static int __put_v4l2_format32(struct v4l2_format __user *kp,
 	case V4L2_BUF_TYPE_SLICED_VBI_OUTPUT:
 		return copy_in_user(&up->fmt.sliced, &kp->fmt.sliced,
 				    sizeof(kp->fmt.sliced)) ? -EFAULT : 0;
+	case V4L2_BUF_TYPE_SDR_CAPTURE:
+	case V4L2_BUF_TYPE_SDR_OUTPUT:
+		return copy_in_user(&up->fmt.sdr, &kp->fmt.sdr,
+				    sizeof(kp->fmt.sdr)) ? -EFAULT : 0;
 	default:
 		return -EINVAL;
 	}
@@ -310,7 +318,7 @@ static int put_v4l2_create32(struct v4l2_create_buffers __user *kp,
 
 struct v4l2_standard32 {
 	__u32		     index;
-	__u32		     id[2]; /* __u64 would get the alignment wrong */
+	compat_u64	     id;
 	__u8		     name[24];
 	struct v4l2_fract    frameperiod; /* Frames, not fields */
 	__u32		     framelines;
@@ -332,7 +340,7 @@ static int put_v4l2_standard32(struct v4l2_standard __user *kp,
 {
 	if (!access_ok(VERIFY_WRITE, up, sizeof(*up)) ||
 	    assign_in_user(&up->index, &kp->index) ||
-	    copy_in_user(&up->id, &kp->id, sizeof(up->id)) ||
+	    assign_in_user(&up->id, &kp->id) ||
 	    copy_in_user(up->name, kp->name, sizeof(up->name)) ||
 	    copy_in_user(&up->frameperiod, &kp->frameperiod,
 			 sizeof(up->frameperiod)) ||
@@ -384,12 +392,12 @@ static int get_v4l2_plane32(struct v4l2_plane __user *up,
 	compat_ulong_t p;
 
 	if (copy_in_user(up, up32, 2 * sizeof(__u32)) ||
-		copy_in_user(&up->data_offset, &up32->data_offset,
-				sizeof(__u32)) ||
-		copy_in_user(up->reserved, up32->reserved,
-				sizeof(up->reserved)) ||
-		copy_in_user(&up->length, &up32->length,
-				sizeof(__u32)))
+	    copy_in_user(&up->data_offset, &up32->data_offset,
+			 sizeof(up->data_offset)) ||
+	    copy_in_user(up->reserved, up32->reserved,
+			 sizeof(up->reserved)) ||
+	    copy_in_user(&up->length, &up32->length,
+			 sizeof(up->length)))
 		return -EFAULT;
 
 	switch (memory) {
@@ -420,10 +428,10 @@ static int put_v4l2_plane32(struct v4l2_plane __user *up,
 	unsigned long p;
 
 	if (copy_in_user(up32, up, 2 * sizeof(__u32)) ||
-		copy_in_user(up32->reserved, up->reserved,
-				sizeof(up32->reserved)) ||
-		copy_in_user(&up32->data_offset, &up->data_offset,
-				sizeof(__u32)))
+	    copy_in_user(up32->reserved, up->reserved,
+			 sizeof(up32->reserved)) ||
+	    copy_in_user(&up32->data_offset, &up->data_offset,
+			 sizeof(up->data_offset)))
 		return -EFAULT;
 
 	switch (memory) {
@@ -904,7 +912,10 @@ struct v4l2_event32 {
 		struct v4l2_event_vsync		vsync;
 		struct v4l2_event_ctrl		ctrl;
 		struct v4l2_event_frame_sync	frame_sync;
-		__u8			data[64];
+		struct v4l2_event_src_change	src_change;
+		struct v4l2_event_motion_det	motion_det;
+		 compat_s64                     value64;
+		__u8			        data[64];
 	} u;
 	__u32				pending;
 	__u32				sequence;
@@ -1260,8 +1271,8 @@ long v4l2_compat_ioctl32(struct file *file, unsigned int cmd, unsigned long arg)
 		ret = vdev->fops->compat_ioctl32(file, cmd, arg);
 
 	if (ret == -ENOIOCTLCMD)
-		pr_warn("compat_ioctl32: unknown ioctl '%c', dir=%d, #%d (0x%08x)\n",
-			_IOC_TYPE(cmd), _IOC_DIR(cmd), _IOC_NR(cmd), cmd);
+		pr_debug("compat_ioctl32: unknown ioctl '%c', dir=%d, #%d (0x%08x)\n",
+			 _IOC_TYPE(cmd), _IOC_DIR(cmd), _IOC_NR(cmd), cmd);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(v4l2_compat_ioctl32);

@@ -42,12 +42,6 @@
 #define LAB_BUFFER_ALLOC 1
 #define LAB_BUFFER_DEALLOC 0
 
-/*
- * Driver ioctl will parse only so many params
- * size of LSM_PARAMS_MAX is last LSM_PARAM_TYPE + 1
- */
-#define LSM_PARAMS_MAX (LSM_POLLING_ENABLE + 1)
-
 static struct snd_pcm_hardware msm_pcm_hardware_capture = {
 	.info =                 (SNDRV_PCM_INFO_MMAP |
 				SNDRV_PCM_INFO_BLOCK_TRANSFER |
@@ -349,11 +343,11 @@ static void lsm_event_handler(uint32_t opcode, uint32_t token,
 					payload_size);
 				prtd->event_avail = 1;
 				spin_unlock_irqrestore(&prtd->event_lock,
-							flags);
+								flags);
 				wake_up(&prtd->event_wait);
 			} else {
 				spin_unlock_irqrestore(&prtd->event_lock,
-							flags);
+								flags);
 				dev_err(rtd->dev,
 						"%s: Failed to copy memory with invalid size = %d\n",
 						__func__, payload_size);
@@ -605,7 +599,7 @@ static int msm_lsm_reg_model(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	int rc = 0;
 	u8 *snd_model_ptr;
-	size_t offset;
+	size_t offset = 0;
 
 	rc = q6lsm_snd_model_buf_alloc(prtd->lsm_client,
 				       p_info->param_size,
@@ -743,10 +737,13 @@ static int msm_lsm_set_poll_enable(struct snd_pcm_substream *substream,
 
 	rc = q6lsm_set_one_param(prtd->lsm_client, p_info,
 				 &poll_enable, LSM_POLLING_ENABLE);
-	if (rc)
+	if (!rc) {
+		prtd->lsm_client->poll_enable = poll_enable.poll_en;
+	} else {
 		dev_err(rtd->dev,
 			"%s: Failed to set poll enable, err = %d\n",
 			__func__, rc);
+	}
 done:
 	return rc;
 }
@@ -827,7 +824,6 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 	struct lsm_priv *prtd;
 	struct snd_lsm_detection_params det_params;
 	uint8_t *confidence_level = NULL;
-	bool poll_en;
 
 	if (!substream || !substream->private_data) {
 		pr_err("%s: Invalid %s\n", __func__,
@@ -961,32 +957,10 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 		rc = q6lsm_set_data(prtd->lsm_client,
 			       det_params.detect_mode,
 			       det_params.detect_failure);
-
 		if (rc)
 			dev_err(rtd->dev,
 				"%s: Failed to set params, err = %d\n",
 				__func__, rc);
-		else {
-			poll_en = det_params.poll_enable;
-			if (prtd->lsm_client->poll_enable == poll_en) {
-				dev_dbg(rtd->dev,
-					"%s: Polling for session %d already %s\n",
-					__func__, prtd->lsm_client->session,
-					(poll_en ? "enabled" : "disabled"));
-				rc = 0;
-			} else {
-				dev_dbg(rtd->dev, "%s: polling enable = %d\n",
-					 __func__, poll_en);
-				rc = q6lsm_polling_enable(prtd->lsm_client,
-								poll_en);
-				if (!rc)
-					prtd->lsm_client->poll_enable = poll_en;
-				else
-					dev_err(rtd->dev,
-						"%s: poll enable failed %d\n",
-						__func__, rc);
-			}
-		}
 
 		kfree(prtd->lsm_client->confidence_levels);
 		prtd->lsm_client->confidence_levels = NULL;
@@ -1222,7 +1196,7 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 	case SNDRV_LSM_SET_FWK_MODE_CONFIG: {
 		u32 mode;
 
-		if (copy_from_user(&mode, arg, sizeof(mode))) {
+		if (copy_from_user(&mode, (void __user *) arg, sizeof(mode))) {
 			dev_err(rtd->dev, "%s: %s: copy_frm_user failed\n",
 				__func__, "LSM_SET_FWK_MODE_CONFIG");
 			return -EFAULT;
@@ -1268,6 +1242,12 @@ static int msm_lsm_ioctl_shared(struct snd_pcm_substream *substream,
 }
 #ifdef CONFIG_COMPAT
 
+struct snd_lsm_event_status32 {
+	u16 status;
+	u16 payload_size;
+	u8 payload[0];
+};
+
 struct snd_lsm_event_status_v3_32 {
 	u32 timestamp_lsw;
 	u32 timestamp_msw;
@@ -1290,7 +1270,6 @@ struct snd_lsm_detection_params_32 {
 	enum lsm_detection_mode detect_mode;
 	u8 num_confidence_levels;
 	bool detect_failure;
-	bool poll_enable;
 };
 
 struct lsm_params_info_32 {
@@ -1298,7 +1277,7 @@ struct lsm_params_info_32 {
 	u32 param_id;
 	u32 param_size;
 	compat_uptr_t param_data;
-	enum LSM_PARAM_TYPE param_type;
+	uint32_t param_type;
 };
 
 struct snd_lsm_module_params_32 {
@@ -1545,7 +1524,6 @@ static int msm_lsm_ioctl_compat(struct snd_pcm_substream *substream,
 				det_params32.num_confidence_levels;
 			det_params.detect_failure =
 				det_params32.detect_failure;
-			det_params.poll_enable = det_params32.poll_enable;
 			cmd = SNDRV_LSM_SET_PARAMS;
 			err = msm_lsm_ioctl_shared(substream, cmd,
 					&det_params);
@@ -1734,6 +1712,7 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s REG_SND_MODEL failed err %d\n",
 				__func__, err);
+		goto done;
 		}
 		break;
 	case SNDRV_LSM_SET_PARAMS: {
@@ -1896,7 +1875,8 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 	}
 
 	case SNDRV_LSM_EVENT_STATUS_V3: {
-		struct snd_lsm_event_status_v3 *user = NULL, userarg;
+		struct snd_lsm_event_status_v3 *user = NULL;
+		struct snd_lsm_event_status_v3 userarg;
 
 		dev_dbg(rtd->dev,
 			"%s: SNDRV_LSM_EVENT_STATUS_V3\n", __func__);
@@ -1904,13 +1884,15 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: Invalid params event_status_v3\n",
 				__func__);
-			return -EINVAL;
+			err = -EINVAL;
+			goto done;
 		}
 		if (copy_from_user(&userarg, arg, sizeof(userarg))) {
 			dev_err(rtd->dev,
 				"%s: err copyuser event_status_v3\n",
 				__func__);
-			return -EFAULT;
+			err = -EFAULT;
+			goto done;
 		}
 
 		if (userarg.payload_size >
@@ -1918,7 +1900,8 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 			pr_err("%s: payload_size %d is invalid, max allowed = %d\n",
 				__func__, userarg.payload_size,
 				LISTEN_MAX_STATUS_PAYLOAD_SIZE);
-			return -EINVAL;
+			err = -EINVAL;
+			goto done;
 		}
 
 		size = sizeof(struct snd_lsm_event_status_v3) +
@@ -1928,7 +1911,8 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 			dev_err(rtd->dev,
 				"%s: Allocation failed event status size %d\n",
 				__func__, size);
-			return -EFAULT;
+			err = -EFAULT;
+			goto done;
 		}
 		user->payload_size = userarg.payload_size;
 		err = msm_lsm_ioctl_shared(substream, cmd, user);
@@ -2293,26 +2277,23 @@ static int msm_lsm_app_type_cfg_ctl_put(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
 	u64 fe_id = kcontrol->private_value;
-	int app_type;
-	int acdb_dev_id;
-	int sample_rate;
+	int session_type = SESSION_TYPE_TX;
+	int be_id = ucontrol->value.integer.value[3];
+	struct msm_pcm_stream_app_type_cfg cfg_data = {0};
+	int ret = 0;
 
-	pr_debug("%s: fe_id- %llu\n", __func__, fe_id);
-	if ((fe_id < MSM_FRONTEND_DAI_LSM1) ||
-		(fe_id > MSM_FRONTEND_DAI_LSM8)) {
-		pr_err("%s: Received out of bounds fe_id %llu\n",
-			__func__, fe_id);
-		return -EINVAL;
-	}
+	cfg_data.app_type = ucontrol->value.integer.value[0];
+	cfg_data.acdb_dev_id = ucontrol->value.integer.value[1];
+	cfg_data.sample_rate = ucontrol->value.integer.value[2];
 
-	app_type = ucontrol->value.integer.value[0];
-	acdb_dev_id = ucontrol->value.integer.value[1];
-	sample_rate = ucontrol->value.integer.value[2];
-
-	pr_debug("%s: app_type- %d acdb_dev_id- %d sample_rate- %d session_type- %d\n",
-		__func__, app_type, acdb_dev_id, sample_rate, SESSION_TYPE_TX);
-	msm_pcm_routing_reg_stream_app_type_cfg(fe_id, app_type,
-			acdb_dev_id, sample_rate, SESSION_TYPE_TX);
+	pr_debug("%s: fe_id- %llu session_type- %d be_id- %d app_type- %d acdb_dev_id- %d sample_rate- %d\n",
+		__func__, fe_id, session_type, be_id,
+		cfg_data.app_type, cfg_data.acdb_dev_id, cfg_data.sample_rate);
+	ret = msm_pcm_routing_reg_stream_app_type_cfg(fe_id, session_type,
+						      be_id, &cfg_data);
+	if (ret < 0)
+		pr_err("%s: msm_pcm_routing_reg_stream_app_type_cfg failed returned %d\n",
+			__func__, ret);
 
 	return 0;
 }
@@ -2321,33 +2302,26 @@ static int msm_lsm_app_type_cfg_ctl_get(struct snd_kcontrol *kcontrol,
 					struct snd_ctl_elem_value *ucontrol)
 {
 	u64 fe_id = kcontrol->private_value;
+	int session_type = SESSION_TYPE_TX;
+	int be_id = 0;
+	struct msm_pcm_stream_app_type_cfg cfg_data = {0};
 	int ret = 0;
-	int app_type;
-	int acdb_dev_id;
-	int sample_rate;
 
-	pr_debug("%s: fe_id- %llu\n", __func__, fe_id);
-	if ((fe_id < MSM_FRONTEND_DAI_LSM1) ||
-		(fe_id > MSM_FRONTEND_DAI_LSM8)) {
-		pr_err("%s: Received out of bounds fe_id %llu\n",
-			__func__, fe_id);
-		return -EINVAL;
-	}
-
-	ret = msm_pcm_routing_get_stream_app_type_cfg(fe_id, SESSION_TYPE_TX,
-		&app_type, &acdb_dev_id, &sample_rate);
+	ret = msm_pcm_routing_get_stream_app_type_cfg(fe_id, session_type,
+						      &be_id, &cfg_data);
 	if (ret < 0) {
 		pr_err("%s: msm_pcm_routing_get_stream_app_type_cfg failed returned %d\n",
 			__func__, ret);
 		goto done;
 	}
 
-	ucontrol->value.integer.value[0] = app_type;
-	ucontrol->value.integer.value[1] = acdb_dev_id;
-	ucontrol->value.integer.value[2] = sample_rate;
-	pr_debug("%s: fedai_id %llu, session_type %d, app_type %d, acdb_dev_id %d, sample_rate %d\n",
-		__func__, fe_id, SESSION_TYPE_TX,
-		app_type, acdb_dev_id, sample_rate);
+	ucontrol->value.integer.value[0] = cfg_data.app_type;
+	ucontrol->value.integer.value[1] = cfg_data.acdb_dev_id;
+	ucontrol->value.integer.value[2] = cfg_data.sample_rate;
+	ucontrol->value.integer.value[3] = be_id;
+	pr_debug("%s: fedai_id %llu, session_type %d, be_id %d, app_type %d, acdb_dev_id %d, sample_rate %d\n",
+		__func__, fe_id, session_type, be_id,
+		cfg_data.app_type, cfg_data.acdb_dev_id, cfg_data.sample_rate);
 done:
 	return ret;
 }

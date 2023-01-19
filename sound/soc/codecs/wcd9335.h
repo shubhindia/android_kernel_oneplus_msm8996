@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016, 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -25,8 +25,7 @@
 #define TASHA_SB_PGD_PORT_RX_BASE   0x40
 #define TASHA_SB_PGD_PORT_TX_BASE   0x50
 
-#define TASHA_ZDET_SUPPORTED false
-
+#define TASHA_ZDET_SUPPORTED true
 /* z value defined in milliohm */
 #define TASHA_ZDET_VAL_32	32000
 #define TASHA_ZDET_VAL_400	400000
@@ -82,6 +81,44 @@ enum {
 	TASHA_TX14,
 	TASHA_TX15,
 	TASHA_TX_MAX,
+};
+
+enum {
+	/* INTR_REG 0 */
+	WCD9335_IRQ_FLL_LOCK_LOSS = 1,
+	WCD9335_IRQ_HPH_PA_OCPL_FAULT,
+	WCD9335_IRQ_HPH_PA_OCPR_FAULT,
+	WCD9335_IRQ_EAR_PA_OCP_FAULT,
+	WCD9335_IRQ_HPH_PA_CNPL_COMPLETE,
+	WCD9335_IRQ_HPH_PA_CNPR_COMPLETE,
+	WCD9335_IRQ_EAR_PA_CNP_COMPLETE,
+	/* INTR_REG 1 */
+	WCD9335_IRQ_MBHC_SW_DET,
+	WCD9335_IRQ_MBHC_ELECT_INS_REM_DET,
+	WCD9335_IRQ_MBHC_BUTTON_PRESS_DET,
+	WCD9335_IRQ_MBHC_BUTTON_RELEASE_DET,
+	WCD9335_IRQ_MBHC_ELECT_INS_REM_LEG_DET,
+	WCD9335_IRQ_RESERVED_0,
+	WCD9335_IRQ_RESERVED_1,
+	WCD9335_IRQ_RESERVED_2,
+	/* INTR_REG 2 */
+	WCD9335_IRQ_LINE_PA1_CNP_COMPLETE,
+	WCD9335_IRQ_LINE_PA2_CNP_COMPLETE,
+	WCD9335_IRQ_LINE_PA3_CNP_COMPLETE,
+	WCD9335_IRQ_LINE_PA4_CNP_COMPLETE,
+	WCD9335_IRQ_SOUNDWIRE,
+	WCD9335_IRQ_VDD_DIG_RAMP_COMPLETE,
+	WCD9335_IRQ_RCO_ERROR,
+	WCD9335_IRQ_SVA_ERROR,
+	/* INTR_REG 3 */
+	WCD9335_IRQ_MAD_AUDIO,
+	WCD9335_IRQ_MAD_BEACON,
+	WCD9335_IRQ_MAD_ULTRASOUND,
+	WCD9335_IRQ_VBAT_ATTACK,
+	WCD9335_IRQ_VBAT_RESTORE,
+	WCD9335_IRQ_SVA_OUTBOX1,
+	WCD9335_IRQ_SVA_OUTBOX2,
+	WCD9335_NUM_IRQS,
 };
 
 enum wcd9335_codec_event {
@@ -163,6 +200,4 @@ extern int tasha_codec_enable_standalone_micbias(struct snd_soc_codec *codec,
 extern int tasha_set_spkr_mode(struct snd_soc_codec *codec, int mode);
 extern int tasha_set_spkr_gain_offset(struct snd_soc_codec *codec, int offset);
 extern enum codec_variant tasha_codec_ver(void);
-extern void tasha_set_reset_high_impedance_mode(struct snd_soc_codec *codec,
-						bool set);
 #endif

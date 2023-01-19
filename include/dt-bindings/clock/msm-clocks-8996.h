@@ -13,6 +13,8 @@
 #ifndef __MSM_CLOCKS_8996_H
 #define __MSM_CLOCKS_8996_H
 
+#include "audio-ext-clk.h"
+
 /* clock_gcc controlled clocks */
 #define clk_cxo_clk_src			0x79e95308
 #define clk_pnoc_clk			0x4325d220
@@ -36,7 +38,6 @@
 #define clk_ce1_a_clk			0x44a833fe
 #define clk_cnoc_msmbus_clk		0x62228b5d
 #define clk_cnoc_msmbus_a_clk		0x67442955
-#define clk_uart_cnoc_msmbus_a_clk	0x799be48c
 #define clk_cxo_clk_src_ao		0x64eb6004
 #define clk_cxo_dwc3_clk		0xf79c19f6
 #define clk_cxo_lpm_clk			0x94adbf3d
@@ -73,7 +74,6 @@
 #define clk_rf_clk2_pin_ao		0x2d75eb4d
 #define clk_snoc_msmbus_clk		0xe6900bb6
 #define clk_snoc_msmbus_a_clk		0x5d4683bd
-#define clk_uart_snoc_msmbus_a_clk	0xe623f321
 #define clk_mcd_ce1_clk			0xbb615d26
 #define clk_qcedev_ce1_clk		0x293f97b0
 #define clk_qcrypto_ce1_clk		0xa6ac14df
@@ -542,9 +542,33 @@
 #define clk_sys_apcsaux_clk 0x0b0dd513
 #define clk_cpu_debug_mux 0xc7acaa31
 
-/* Audio External Clocks */
-#define clk_audio_ap_clk 0x312ac429
-#define clk_audio_pmi_clk 0xb7ba2274
-#define clk_audio_ap_clk2 0xf0fbaf5b
-#define clk_audio_lpass_mclk2 0x0122abee
+/* GCC block resets */
+#define QUSB2PHY_PRIM_BCR		0
+#define QUSB2PHY_SEC_BCR		1
+#define BLSP1_BCR			2
+#define BLSP2_BCR			3
+#define BOOT_ROM_BCR			4
+#define PRNG_BCR			5
+#define UFS_BCR				6
+#define USB_20_BCR			7
+#define USB_30_BCR			8
+#define USB3_PHY_BCR			9
+#define USB3PHY_PHY_BCR			10
+#define PCIE_0_PHY_BCR			11
+#define PCIE_1_PHY_BCR			12
+#define PCIE_2_PHY_BCR			13
+#define PCIE_PHY_BCR			14
+#define PCIE_PHY_COM_BCR		15
+#define PCIE_PHY_NOCSR_COM_PHY_BCR	16
+
+/* MMSS Block resets */
+#define VIDEO_BCR			0
+#define MDSS_BCR			1
+#define CAMSS_MICRO_BCR			2
+#define CAMSS_JPEG_BCR			3
+#define CAMSS_VFE0_BCR			4
+#define CAMSS_VFE1_BCR			5
+#define FD_BCR				6
+#define GPU_GX_BCR			7
+
 #endif

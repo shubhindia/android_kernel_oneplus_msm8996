@@ -87,7 +87,7 @@ struct kmem_cache {
 	struct kobject kobj;	/* For sysfs */
 #endif
 #ifdef CONFIG_MEMCG_KMEM
-	struct memcg_cache_params *memcg_params;
+	struct memcg_cache_params memcg_params;
 	int max_attr_size; /* for propagation, maximum size of a stored attr */
 #ifdef CONFIG_SYSFS
 	struct kset *memcg_kset;
@@ -100,6 +100,11 @@ struct kmem_cache {
 	 */
 	int remote_node_defrag_ratio;
 #endif
+
+#ifdef CONFIG_KASAN
+	struct kasan_cache kasan_info;
+#endif
+
 	struct kmem_cache_node *node[MAX_NUMNODES];
 };
 
@@ -130,5 +135,16 @@ static inline void *virt_to_obj(struct kmem_cache *s,
 
 void object_err(struct kmem_cache *s, struct page *page,
 		u8 *object, char *reason);
+
+static inline void *nearest_obj(struct kmem_cache *cache, struct page *page,
+				void *x) {
+	void *object = x - (x - page_address(page)) % cache->size;
+	void *last_object = page_address(page) +
+		(page->objects - 1) * cache->size;
+	if (unlikely(object > last_object))
+		return last_object;
+	else
+		return object;
+}
 
 #endif /* _LINUX_SLUB_DEF_H */

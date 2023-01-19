@@ -49,40 +49,7 @@ static inline size_t buffer_start(struct persistent_ram_zone *prz)
 }
 
 /* increase and wrap the start pointer, returning the old value */
-static size_t buffer_start_add_atomic(struct persistent_ram_zone *prz, size_t a)
-{
-	int old;
-	int new;
-
-	do {
-		old = atomic_read(&prz->buffer->start);
-		new = old + a;
-		while (unlikely(new >= prz->buffer_size))
-			new -= prz->buffer_size;
-	} while (atomic_cmpxchg(&prz->buffer->start, old, new) != old);
-
-	return old;
-}
-
-/* increase the size counter until it hits the max size */
-static void buffer_size_add_atomic(struct persistent_ram_zone *prz, size_t a)
-{
-	size_t old;
-	size_t new;
-
-	if (atomic_read(&prz->buffer->size) == prz->buffer_size)
-		return;
-
-	do {
-		old = atomic_read(&prz->buffer->size);
-		new = old + a;
-		if (new > prz->buffer_size)
-			new = prz->buffer_size;
-	} while (atomic_cmpxchg(&prz->buffer->size, old, new) != old);
-}
-
-/* increase and wrap the start pointer, returning the old value */
-static size_t buffer_start_add_locked(struct persistent_ram_zone *prz, size_t a)
+static size_t buffer_start_add(struct persistent_ram_zone *prz, size_t a)
 {
 	int old;
 	int new;
@@ -104,7 +71,7 @@ static size_t buffer_start_add_locked(struct persistent_ram_zone *prz, size_t a)
 }
 
 /* increase the size counter until it hits the max size */
-static void buffer_size_add_locked(struct persistent_ram_zone *prz, size_t a)
+static void buffer_size_add(struct persistent_ram_zone *prz, size_t a)
 {
 	size_t old;
 	size_t new;
@@ -126,9 +93,6 @@ exit:
 	if (!(prz->flags & PRZ_FLAG_NO_LOCK))
 		raw_spin_unlock_irqrestore(&prz->buffer_lock, flags);
 }
-
-static size_t (*buffer_start_add)(struct persistent_ram_zone *, size_t) = buffer_start_add_atomic;
-static void (*buffer_size_add)(struct persistent_ram_zone *, size_t) = buffer_size_add_atomic;
 
 static void notrace persistent_ram_encode_rs8(struct persistent_ram_zone *prz,
 	uint8_t *data, size_t len, uint8_t *ecc)
@@ -327,7 +291,7 @@ void persistent_ram_save_old(struct persistent_ram_zone *prz)
 
 	if (!prz->old_log) {
 		persistent_ram_ecc_old(prz);
-		prz->old_log = vmalloc(size);
+		prz->old_log = kmalloc(size, GFP_KERNEL);
 	}
 	if (!prz->old_log) {
 		pr_err("failed to allocate buffer\n");
@@ -413,7 +377,7 @@ void *persistent_ram_old(struct persistent_ram_zone *prz)
 
 void persistent_ram_free_old(struct persistent_ram_zone *prz)
 {
-	vfree(prz->old_log);
+	kfree(prz->old_log);
 	prz->old_log = NULL;
 	prz->old_log_size = 0;
 }
@@ -476,9 +440,6 @@ static void *persistent_ram_iomap(phys_addr_t start, size_t size,
 		return NULL;
 	}
 
-	buffer_start_add = buffer_start_add_locked;
-	buffer_size_add = buffer_size_add_locked;
-
 	if (memtype)
 		va = ioremap(start, size);
 	else
@@ -527,6 +488,11 @@ static int persistent_ram_post_init(struct persistent_ram_zone *prz, u32 sig,
 	sig ^= PERSISTENT_RAM_SIG;
 
 	if (prz->buffer->sig == sig) {
+		if (buffer_size(prz) == 0) {
+			pr_debug("found existing empty buffer\n");
+			return 0;
+		}
+
 		if (buffer_size(prz) > prz->buffer_size ||
 		    buffer_start(prz) > buffer_size(prz))
 			pr_info("found existing invalid buffer, size %zu, start %zu\n",

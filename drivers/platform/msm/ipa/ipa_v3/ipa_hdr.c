@@ -13,7 +13,7 @@
 #include "ipa_i.h"
 #include "ipahal/ipahal.h"
 
-static const u32 ipa_hdr_bin_sz[IPA_HDR_BIN_MAX] = { 8, 16, 24, 36, 64};
+static const u32 ipa_hdr_bin_sz[IPA_HDR_BIN_MAX] = { 8, 16, 24, 36, 60};
 static const u32 ipa_hdr_proc_ctx_bin_sz[IPA_HDR_PROC_CTX_BIN_MAX] = { 32, 64};
 
 #define HDR_TYPE_IS_VALID(type) \
@@ -61,40 +61,29 @@ static int ipa3_generate_hdr_hw_tbl(struct ipa_mem_buffer *mem)
 	return 0;
 }
 
-static void ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
+static int ipa3_hdr_proc_ctx_to_hw_format(struct ipa_mem_buffer *mem,
 	u32 hdr_base_addr)
 {
 	struct ipa3_hdr_proc_ctx_entry *entry;
-	int ep;
+	int ret;
 
 	list_for_each_entry(entry,
 			&ipa3_ctx->hdr_proc_ctx_tbl.head_proc_ctx_entry_list,
 			link) {
 		IPADBG_LOW("processing type %d ofst=%d\n",
 			entry->type, entry->offset_entry->offset);
-		if (entry->l2tp_params.is_dst_pipe_valid) {
-			ep = ipa3_get_ep_mapping(entry->l2tp_params.dst_pipe);
-			if (ep >= 0) {
-				entry->l2tp_params.hdr_remove_param.
-					hdr_ofst_pkt_size_valid = ipa3_ctx->
-					ep[ep].cfg.hdr.hdr_ofst_pkt_size_valid;
-				entry->l2tp_params.hdr_remove_param.
-					hdr_ofst_pkt_size = ipa3_ctx->ep[ep].
-					cfg.hdr.hdr_ofst_pkt_size;
-				entry->l2tp_params.hdr_remove_param.
-					hdr_endianness = ipa3_ctx->ep[ep].
-					cfg.hdr_ext.hdr_little_endian ? 0 : 1;
-			}
-		}
-		ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
+		ret = ipahal_cp_proc_ctx_to_hw_buff(entry->type, mem->base,
 				entry->offset_entry->offset,
 				entry->hdr->hdr_len,
 				entry->hdr->is_hdr_proc_ctx,
 				entry->hdr->phys_base,
 				hdr_base_addr,
-				entry->hdr->offset_entry,
-				entry->l2tp_params);
+				entry->hdr->offset_entry);
+		if (ret)
+			return ret;
 	}
+
+	return 0;
 }
 
 /**
@@ -133,9 +122,7 @@ static int ipa3_generate_hdr_proc_ctx_hw_tbl(u32 hdr_sys_addr,
 	memset(aligned_mem->base, 0, aligned_mem->size);
 	hdr_base_addr = (ipa3_ctx->hdr_tbl_lcl) ? IPA_MEM_PART(apps_hdr_ofst) :
 		hdr_sys_addr;
-	ipa3_hdr_proc_ctx_to_hw_format(aligned_mem, hdr_base_addr);
-
-	return 0;
+	return ipa3_hdr_proc_ctx_to_hw_format(aligned_mem, hdr_base_addr);
 }
 
 /**
@@ -370,7 +357,6 @@ static int __ipa_add_hdr_proc_ctx(struct ipa_hdr_proc_ctx_add *proc_ctx,
 
 	entry->type = proc_ctx->type;
 	entry->hdr = hdr_entry;
-	entry->l2tp_params = proc_ctx->l2tp_params;
 	if (add_ref_hdr)
 		hdr_entry->ref_cnt++;
 	entry->cookie = IPA_PROC_HDR_COOKIE;
@@ -838,8 +824,8 @@ bail:
 }
 
 /**
- * ipa3_del_hdr() - Remove the specified headers from SW and optionally commit them
- * to IPA HW
+ * ipa3_del_hdr() - Remove the specified headers from SW
+ * and optionally commit them to IPA HW
  * @hdls:	[inout] set of headers to delete
  *
  * Returns:	0 on success, negative on failure
@@ -1065,6 +1051,7 @@ int ipa3_reset_hdr(bool user_only)
 			htbl->hdr_cnt--;
 			entry->ref_cnt = 0;
 			entry->cookie = 0;
+
 			/* remove the handle from the database */
 			ipa3_id_remove(entry->id);
 			kmem_cache_free(ipa3_ctx->hdr_cache, entry);
@@ -1130,7 +1117,6 @@ int ipa3_reset_hdr(bool user_only)
 				ctx_entry);
 		}
 	}
-
 	/* only clean up offset_list and free_offset_list on global reset */
 	if (!user_only) {
 		for (i = 0; i < IPA_HDR_PROC_CTX_BIN_MAX; i++) {

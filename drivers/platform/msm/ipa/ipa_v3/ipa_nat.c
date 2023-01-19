@@ -382,6 +382,7 @@ int ipa3_nat_init_cmd(struct ipa_ioc_v4_nat_init *init)
 		IPAERR_RL("Detected overflow\n");
 		return -EPERM;
 	}
+
 	mutex_lock(&ipa3_ctx->nat_mem.lock);
 
 	/* Check Table Entry offset is not
@@ -817,6 +818,7 @@ int ipa3_nat_del_cmd(struct ipa_ioc_v4_nat_del *del)
 	}
 
 	memset(&desc, 0, sizeof(desc));
+
 	if (!ipa3_ctx->nat_mem.is_dev_init) {
 		IPAERR_RL("NAT hasn't been initialized\n");
 		return -EPERM;

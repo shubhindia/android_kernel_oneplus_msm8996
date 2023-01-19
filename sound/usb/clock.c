@@ -288,6 +288,8 @@ static int set_sample_rate_v1(struct snd_usb_audio *chip, int iface,
 	unsigned char data[3];
 	int err, crate;
 
+	if (get_iface_desc(alts)->bNumEndpoints < 1)
+		return -EINVAL;
 	ep = get_endpoint(alts, 0)->bEndpointAddress;
 
 	/* if endpoint doesn't have sampling rate control, bail out */
@@ -425,6 +427,10 @@ int snd_usb_init_sample_rate(struct snd_usb_audio *chip, int iface,
 
 	case UAC_VERSION_2:
 		return set_sample_rate_v2(chip, iface, alts, fmt, rate);
+
+	/* Clock rate is fixed at 48 kHz for BADD devices */
+	case UAC_VERSION_3:
+		return 0;
 	}
 }
 
